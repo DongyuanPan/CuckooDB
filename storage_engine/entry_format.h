@@ -19,12 +19,18 @@
 #include "util/logger.h"
 #include "util/optioin.h"
 
-namespace cdb {
+namespace cdb {  
+
+enum HeaderFlag {
+  Delete = 0x1,
+  Merge = 0x2,
+  EntryFull = 0x4
+};    
 
   struct EntryHeader {
     //crc32 校验
     uint32_t crc32;
-    //entry的状态 是删除
+    //entry的状态
     uint32_t flags;
     uint64_t timestamp;
     uint64_t size_key;
@@ -34,67 +40,89 @@ namespace cdb {
     // key
     // value
 
+    void SetDelete() {
+        flags |= Delete;
+    }
+
+    void SetPut() {
+        flags |= 0x0;
+    }
+
+    bool IsMerge() {
+        return (flags & Merge);
+    }
+
+    void SetMerge(bool is_Merge) {
+      if (is_Merge){
+        //置位 表示已经 合并过了
+        flags |= Merge;
+      } else {
+        //复位 待合并
+        flags &= ~Merge;
+      }
+    }
+
     int32_t size_header_serialized;
 
-  static uint32_t EncodeTo(const DatabaseOptions& db_options,
-                           const struct EntryHeader *input,
-                           char* buffer) {
+    static uint32_t EncodeTo(const DatabaseOptions& db_options,
+                            const struct EntryHeader *input,
+                            char* buffer) {
 
-    char *ptr = buffer;
-    EncodeFixed32(ptr, input->crc32);
-    ptr = EncodeVarint32(ptr + 4, input->flags);
-    ptr = EncodeVarint64(ptr, input->timestamp);
-    ptr = EncodeVarint64(ptr, input->size_key);
-    ptr = EncodeVarint64(ptr, input->size_value);
+        char *ptr = buffer;
+        EncodeFixed32(ptr, input->crc32);
+        ptr = EncodeVarint32(ptr + 4, input->flags);
+        ptr = EncodeVarint64(ptr, input->timestamp);
+        ptr = EncodeVarint64(ptr, input->size_key);
+        ptr = EncodeVarint64(ptr, input->size_value);
 
-    EncodeFixed64(ptr, input->hash);
-    ptr += 8;
+        EncodeFixed64(ptr, input->hash);
+        ptr += 8;
 
-    return (ptr - buffer);
-  }
+        return (ptr - buffer);
+    }
 
-  static Status DecodeFrom(const DatabaseOptions& db_options,
-                           const ReadOptions& read_options,
-                           const char* buffer_in,
-                           uint64_t num_bytes_max,
-                           struct EntryHeader *output,
-                           uint32_t *num_bytes_read) {
+    static Status DecodeFrom(const DatabaseOptions& db_options,
+                            const ReadOptions& read_options,
+                            const char* buffer_in,
+                            uint64_t num_bytes_max,
+                            struct EntryHeader *output,
+                            uint32_t *num_bytes_read) {
 
-    int length;
-    char *buffer = const_cast<char*>(buffer_in);
-    char *ptr = buffer;
-    int size = num_bytes_max;
-    
-    GetFixed32(ptr, &(output->checksum_content));
-    ptr += 4;
-    size -= 4;
+        int length;
+        char *buffer = const_cast<char*>(buffer_in);
+        char *ptr = buffer;
+        int size = num_bytes_max;
+        
+        GetFixed32(ptr, &(output->checksum_content));
+        ptr += 4;
+        size -= 4;
 
-    length = GetVarint32(ptr, size, &(output->flags));
-    if (length == -1) return Status::IOError("Decoding error");
-    ptr += length;
-    size -= length;
+        length = GetVarint32(ptr, size, &(output->flags));
+        if (length == -1) return Status::IOError("Decoding error");
+        ptr += length;
+        size -= length;
 
-    length = GetVarint64(ptr, size, &(output->size_key));
-    if (length == -1) return Status::IOError("Decoding error");
-    ptr += length;
-    size -= length;
+        length = GetVarint64(ptr, size, &(output->size_key));
+        if (length == -1) return Status::IOError("Decoding error");
+        ptr += length;
+        size -= length;
 
-    length = GetVarint64(ptr, size, &(output->size_value));
-    if (length == -1) return Status::IOError("Decoding error");
-    ptr += length;
-    size -= length;
+        length = GetVarint64(ptr, size, &(output->size_value));
+        if (length == -1) return Status::IOError("Decoding error");
+        ptr += length;
+        size -= length;
 
-    if (size < 8) return Status::IOError("Decoding error");
-    GetFixed64(ptr, &(output->hash));
-    ptr += 8;
-    size -= 8;
+        if (size < 8) return Status::IOError("Decoding error");
+        GetFixed64(ptr, &(output->hash));
+        ptr += 8;
+        size -= 8;
 
-    *num_bytes_read = num_bytes_max - size;
-    output->size_header_serialized = *num_bytes_read;
+        *num_bytes_read = num_bytes_max - size;
+        output->size_header_serialized = *num_bytes_read;
 
-    //log::trace("EntryHeader::DecodeFrom", "size:%u", *num_bytes_read);
-    return Status::OK();
-  }  
+        //log::trace("EntryHeader::DecodeFrom", "size:%u", *num_bytes_read);
+        return Status::OK();
+    }  
 
   }
 }// end namespace cdb
