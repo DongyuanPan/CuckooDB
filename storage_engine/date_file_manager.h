@@ -73,7 +73,11 @@ class DateFileManager {
         log::trace("ateFileManager::OpenNewFile()");
     }
 
-    void write(std::vector<Entry>& entrys, std::unordered_multimap<uint64_t, uint64_t> indexs>& map_index_out) {
+    uint64_t write(Entry& entry, uint64_t hashed_key) {
+
+    }
+
+    void WriteEntrys(std::vector<Entry>& entrys, std::unordered_multimap<uint64_t, uint64_t> indexs>& map_index_out) {
       for (auto& entry:entrys){
           if (! has_file_) OpenNewFile();
 
@@ -85,11 +89,11 @@ class DateFileManager {
 
           //只考虑 小文件的情况下
           log::trace("DateFileManager::Write()", "key: [%s] size_value:%llu", entry.key.c_str(), entry.value->size());
-          uint64_t hashed_key = hash_->HashFunction(entry.key.data(), entry.key.size());
+          uint64_t hashed_key = HashFunction(entry.key.data(), entry.key.size());
 
           buffer_has_items_ = true;
           uint64_t location = 0;
-          location = WriteFirstPartOrSmallOrder(order, hashed_key);
+          location = Write(entry, hashed_key);
 
           if (location != 0 ) {
             map_index_out.insert(std::pair<uint64_t, uint64_t>(hashed_key, location))
