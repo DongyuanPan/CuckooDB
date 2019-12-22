@@ -38,7 +38,7 @@ class Cache{
 
   private:
     void Run();//event loop
-    bool GetStop(){ return stop_;}
+    bool IsStop(){ return stop_;}
     void SetStop(){ stop_ = true;}
     
 

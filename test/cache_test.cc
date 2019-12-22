@@ -14,7 +14,7 @@ int main(){
   std::unordered_map<std::string, std::string> map;
   cdb::Logger::set_current_level("trace");
   cdb::Cache cache;
-  int n = 3;
+  int n = 25;
   for (int i = 0; i < n; ++i){
     std::string s;
     for (int j = 0; j < 10; ++j){

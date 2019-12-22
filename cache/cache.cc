@@ -126,10 +126,11 @@ Status Cache::Additem(const EntryType& op_type, const std::string &key, const st
   mutex_live_size_l3.unlock();
 
   if (cache_live_size > max_size_){
-	  log::trace("Cache::Add()","cache_live_size:%d , max_size_: %d", cache_live_size, max_size_);
-    log::trace("Cache::Add()", "swap and flush");
     mutex_flush_l2.lock();
     std::unique_lock<std::mutex> lock_swap(mutex_live_size_l3);
+    log::trace("Cache::Add()", "swap and cache");
+
+    std::swap(cache_live_, cache_swap_);
     cond_flush.notify_one();
     mutex_flush_l2.unlock();
 
@@ -142,12 +143,21 @@ Status Cache::Additem(const EntryType& op_type, const std::string &key, const st
 void Cache::Run(){
   while(true){
     std::unique_lock<std::mutex> lock_flush(mutex_flush_l2);
+    
+    //使用循环 判断条件 防止虚假唤醒
+    while(live_size_ == 0){
+      cond_flush.wait(lock_flush);
+      if (IsStop()) return;
+    }
+    
+    mutex_live_size_l3.lock();
     //如果 swap cache 大小为0 说明当 live cache满了就可以进行覆盖了 
     if (swap_size_ == 0){
       //阻塞，等待live cache 满了就 notify 
-      log::trace("Cache::Run", "Run():wait for flush");
-      cond_flush.wait(lock_flush);
+      log::trace("Cache::Run", "swap cahe");
+      std::swap(cache_live_, cache_swap_);
     }
+    mutex_live_size_l3.unlock();
 
     //to-do:notify 通知StorageEngine 可以固化swap cache 到硬盘上，并更新索引 
     log::trace("Cache::Run", " notify 通知StorageEngine 可以固化swap cache 到硬盘上，并更新索引");
