@@ -18,6 +18,8 @@
 #include "data_file_manager.h"
 #include "eventmanager.h"
 
+#include ""file/file_resource_manager.h
+
 #include "util/options.h"
 #include "util/entry.h"
 #include "util/status.h"
@@ -30,17 +32,17 @@ class StorageEngine{
   public:
     StorageEngine(DatebaseOpention db_options,
                   std::string name，
-                  EventManager *event_manager)
+                  EventManager *event_manager
+                  )
 	    :dbname_(name),
        db_options_(db_options),
        event_manager_(event_manager),
-       #date_file_manager_();
-    {
+       date_file_manager_(db_options, dbname, read_only) {
+
       log::trace("StorageEngine:StorageEngine()", "dbname: %s", dbname_.c_str());
       stop_ = false;
       num_readers_ = 0;
       
-      file_manager_ = std::make_shared<FileManager>();
       //启动事件循环 
       thread_data_ = std::thread(&StorageEngine::RunData, this);
       thread_index_ = std::thread(&StorageEngine::RunIndex, this);
@@ -48,7 +50,10 @@ class StorageEngine{
 
 	  };
 
-    ~StorageEngine() {}
+    ~StorageEngine() {
+      thread_index_.join();
+      thread_data_.join();
+    }
 
     bool IsStop() {
       return stop_;
@@ -63,11 +68,11 @@ class StorageEngine{
       //等待 swap cache 满了 通过 事件驱动器通知 进行处理
       while(true){
         //阻塞等待
-        std::vector<Entry> entrys = event_manager_-> notify_and_wait.wait();
+        std::vector<Entry> entrys = event_manager_-> flush_cache.Wait();
         if (IsStop()) return;
         log::trace("StorageEngine::RunData()", "got %d entry", entrys.size());
 
-        //获取写锁
+        //获取写f
         AcquireWriteLock();
         //哈希表，存储索引
         std::unordered_multimap<uint64_t, uint64_t> indexs;
@@ -77,27 +82,27 @@ class StorageEngine{
         ReleaseWriteLock();
 
         //通知事件处理器  已经处理完毕 写入到文件 
-        event_manager_->notify_and_wait.Done();
+        event_manager_->flush_cache.Done();
         //通知事件处理器 开始更新索引
-        event_manager_->event_start_wait_(indexs);
+        event_manager_->update_index(indexs);
       }
     }
 
     void RunIndex() {
       log::trace("StorageEngine::RunIndex()", "start to wait for handle index");
-
+      
     }
 
   private:
     std::string dbname_;
     bool stop_;
     DatebaseOpention db_options_;
-    EventManager event_manager_;
+    EventManager *event_manager_;
     DateFileManager date_file_manager_;
 
     //事件循环线程
-
-
+    std::thread thread_data_;
+    std::thread thread_index_;
 
     //读写锁
     //to-do : 实现读写锁类

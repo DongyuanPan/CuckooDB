@@ -21,12 +21,13 @@
 #include "util/status.h"
 #include "cache/cache.h"
 #include "storage_engine/storage_engine.h"
+#include "util/event_manager.h"
 
 namespace cdb{
 
 class CuckooDB:public DB{
   public:
-    CuckooDB(std::string name);
+    CuckooDB(DatebaseOpention db_options, std::string name, EventManager *event_manager);
     virtual ~CuckooDB(){}
 
     virtual Status Get(const std::string &key, std::string* value) override;
@@ -37,8 +38,10 @@ class CuckooDB:public DB{
     std::string name_;//database name
     std::mutex mutex_;
 
-    cdb::StorageEngine stroage_engine_;
-    cdb::Cache cache_;
+    cdb::StorageEngine *stroage_engine_;
+    cdb::Cache *cache_;
+    cdb::EventManager *event_manager_;
+    // cdb::CRC32 crc32_;
 
 };
 

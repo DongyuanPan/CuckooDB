@@ -93,7 +93,6 @@ struct DateFileFooter {
   uint32_t flags;
   uint64_t offset_indexes;
   uint64_t num_entries;
-  uint64_t magic_number;
   uint32_t crc32;  
 
   //一共36个字节
@@ -105,6 +104,10 @@ struct DateFileFooter {
     return (filetype & kCompactedRegularType);
   }  
 
+  void SetFlagHasInvalidEntries() {
+    flags = 1;
+  }  
+
   static Status DecodeFrom(const char* buffer_in,
                            uint64_t num_bytes_max,
                            struct HSTableFooter *output) {
@@ -113,8 +116,7 @@ struct DateFileFooter {
     GetFixed32(buffer_in +  4, &(output->flags));
     GetFixed64(buffer_in +  8, &(output->offset_indexes));
     GetFixed64(buffer_in + 16, &(output->num_entries));
-    GetFixed64(buffer_in + 24, &(output->magic_number));
-    GetFixed32(buffer_in + 32, &(output->crc32));
+    GetFixed32(buffer_in + 24, &(output->crc32));
     return Status::OK();
   }
 
@@ -124,7 +126,6 @@ struct DateFileFooter {
     EncodeFixed32(buffer +  4, input->flags);
     EncodeFixed64(buffer +  8, input->offset_indexes);
     EncodeFixed64(buffer + 16, input->num_entries);
-    EncodeFixed64(buffer + 24, input->magic_number);
     // the checksum is computed in the method that writes the footer
     return GetFixedSize();
   }  

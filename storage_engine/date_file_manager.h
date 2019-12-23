@@ -15,10 +15,16 @@
 #include <mutex>
 #include <unordered_mutilmap>
 
+#include "file/file_resource_manager.h"
+
+#include "util/const_value.h"
 #include "util/options.h"
 #include "util/entry.h"
 #include "util/status.h"
 #include "util/logger.h"
+
+
+
 
 namespace cdb{
 
@@ -27,11 +33,20 @@ class DateFileManager {
     DateFileManager(DatabaseOptions& db_options,
                     std::string dbname,
                     bool read_only = false)
-            : db_options_(db_options),
-              id_read_only_(read_only)
-    {
-        prefix_ = "";
-        
+            : dbname_(dbname),
+              db_options_(db_options),
+              id_read_only_(read_only),
+              fileid_(0),
+              sequence_fileid_(0),
+              sequence_timestamp_(0) {
+      if (!is_read_only_) {
+        buffer_raw_ = new char[size_block_*2];
+        buffer_index_ = new char[size_block_*2];
+      } 
+      
+      size_block_ = SIZE_DATA_FILE;
+      has_file_ = false;
+      buffer_has_items_ = false;
 
     }
 
@@ -122,6 +137,18 @@ class DateFileManager {
         HSTableHeader::EncodeTo(&hstheader, &db_options_, buffer_raw_);        
     }
 
+
+    void CloseFile() {
+      if (!has_file_) return;
+      log::trace("HSTableManager::CloseCurrentFile()", "ENTER - fileid_:%d", fileid_);
+
+      // FlushOffsetArray();
+
+      close(fd_);
+      buffer_has_items_ = false;
+      has_file_ = false;
+    }      
+
     uint32_t FlushCurrentFile(int force_new_file=0, uint64_t padding=0) {
       if (!has_file_)
         return 0;
@@ -157,9 +184,9 @@ class DateFileManager {
 
       log::trace("DateFileManager::FlushCurrentFile()", "done!");
       return fileid_out;
-    }
+    }   
 
-    uint64_t write(Entry& entry, uint64_t hashed_key) {
+    uint64_t Write(Entry& entry, uint64_t hashed_key) {
 
       struct EntryHeader entry_header;
       uint64_t index = 0;
@@ -257,8 +284,7 @@ class DateFileManager {
     std::string dbname_;
     char *buffer_raw_;
     bool buffer_has_items_;
-    
-
+  
 
 }
 

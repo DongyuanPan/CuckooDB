@@ -11,13 +11,15 @@
 
 namespace cdb{
 
-Cache::Cache(){
+Cache::Cache(cdb::DatebaseOpention db_options, cdb::EventManager* event_manager){
   stop_ = false;
   num_readers_ = 0;
   max_size_ = 200;
   live_size_ = 0;
   swap_size_ = 0;
-  //thread_cache_handler_ = std::thread(&Cache::Run, this);
+  event_manager_ = event_manager;
+  db_options_ = db_options;
+  thread_cache_handler_ = std::thread(&Cache::Run, this);
 }
 
 
@@ -161,8 +163,20 @@ void Cache::Run(){
 
     //to-do:notify 通知StorageEngine 可以固化swap cache 到硬盘上，并更新索引 
     log::trace("Cache::Run", " notify 通知StorageEngine 可以固化swap cache 到硬盘上，并更新索引");
+    event_manager_->flush_cache.notify_and_wait(cache_swap_);
+
+    log::trace("Cache::Run", "wait clear cache has benn done");
+    event_manager_->clear_cache.Wait();
+    event_manager_->clear_cache.Done();
 
     //to-do:等待所有读swap cahce 的线程结束，然后清空swap cache
+    w_mutex_cache_swap_l4.lock();
+    while(true) {
+      std::unique_lock<std::mutex> lock_read(mutex_copy_read_level5_);
+      if (num_readers_ == 0) break;
+      cv_read_.wait(lock_read);
+    }
+ 
     swap_size_ = 0;
     cache_swap_.clear();
 

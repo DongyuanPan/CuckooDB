@@ -18,13 +18,14 @@
 #include "util/entry.h"
 #include "util/logger.h"
 #include "util/status.h"
+#include "util/event_manager.h"
 #include <condition_variable>
 
 namespace cdb{
 
 class Cache{
   public:
-    Cache();
+    Cache(cdb::DatebaseOpention db_options, EventManager* event_manager_);
     ~Cache(){}
 
     Status Get(const std::string &key, std::string* value);
@@ -49,6 +50,9 @@ class Cache{
     int max_size_;
     bool stop_;	
     int num_readers_;
+
+    cdb::DatebaseOpention db_options_,
+    cdb::EventManager* event_manager_
 
 
     std::mutex w_mutex_cache_live_l1;

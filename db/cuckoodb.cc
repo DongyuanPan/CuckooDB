@@ -10,9 +10,13 @@
 
 namespace cdb{
 
-CuckooDB::CuckooDB(std::string name):
-  name_(name),
-  stroage_engine_(name) {
+CuckooDB::CuckooDB(DatebaseOpention db_options, 
+                   std::string name,
+                   EventManager *event_manager):
+  name_(name) {
+  event_manager_ = new EventManager();
+  cache_ = new Cache(db_options, event_manager_);
+  stroage_engine_ = new StorageEngine(db_options, name, event_manager);
 
 }
 
