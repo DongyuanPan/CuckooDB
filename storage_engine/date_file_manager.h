@@ -22,6 +22,7 @@
 #include "util/entry.h"
 #include "util/status.h"
 #include "util/logger.h"
+#include "util/xxhash.h"
 
 
 
@@ -254,7 +255,7 @@ class DateFileManager {
 
           //只考虑 小文件的情况下
           log::trace("DateFileManager::Write()", "key: [%s] size_value:%llu", entry.key.c_str(), entry.value->size());
-          uint64_t hashed_key = HashFunction(entry.key.data(), entry.key.size());
+          uint64_t hashed_key = XXH64(entry.key.data(), entry.key.size(), 0);
 
           buffer_has_items_ = true;
           uint64_t index = 0;

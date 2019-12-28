@@ -77,7 +77,7 @@ class StorageEngine{
         //哈希表，存储索引
         std::unordered_multimap<uint64_t, uint64_t> indexs;
         //处理数据写入文件之中
-        date_file_manager_.Write(entrys, indexs);
+        date_file_manager_.WriteEntrys(entrys, indexs);
 
         ReleaseWriteLock();
 
