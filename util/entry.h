@@ -14,6 +14,8 @@
 #include <thread>
 #include <string.h>
 
+#include "options.h"
+
 namespace cdb{
 
 //日志结构存储 不会删除 而是将删除的条目一样加入到后面
@@ -25,14 +27,14 @@ enum class EntryType{
 
 struct Entry{
   std::thread::id tid;
-  //WriteOptions write_options;
+  cdb::WriteOptions write_options;
   EntryType op_type;
   std::string key;
   std::string value;//可能过大被拆分
 
   //TO-DO 支持大value的写 可以作拆分
-  uint64_t offset;//该entry对于其所属的某个大value的偏移
-  bool is_large;
+  // uint64_t offset;//该entry对于其所属的某个大value的偏移
+  // bool is_large;
 
   uint64_t crc32;
 };

@@ -15,9 +15,9 @@
 
 #include "util/status.h"
 #include "util/coding.h"
-#include "util/crc32.h"
+#include "util/crc32c.h"
 #include "util/logger.h"
-#include "util/optioin.h"
+#include "util/options.h"
 
 namespace cdb {  
 
@@ -64,7 +64,7 @@ enum HeaderFlag {
 
     int32_t size_header_serialized;
 
-    static uint32_t EncodeTo(const DatabaseOptions& db_options,
+    static uint32_t EncodeTo(const Options& db_options,
                             const struct EntryHeader *input,
                             char* buffer) {
 
@@ -81,7 +81,7 @@ enum HeaderFlag {
         return (ptr - buffer);
     }
 
-    static Status DecodeFrom(const DatabaseOptions& db_options,
+    static Status DecodeFrom(const Options& db_options,
                             const ReadOptions& read_options,
                             const char* buffer_in,
                             uint64_t num_bytes_max,
@@ -93,11 +93,17 @@ enum HeaderFlag {
         char *ptr = buffer;
         int size = num_bytes_max;
         
-        GetFixed32(ptr, &(output->checksum_content));
+        GetFixed32(ptr, &(output->crc32));
         ptr += 4;
         size -= 4;
 
         length = GetVarint32(ptr, size, &(output->flags));
+        if (length == -1) return Status::IOError("Decoding error");
+        ptr += length;
+        size -= length;
+
+
+        length = GetVarint64(ptr, size, &(output->timestamp));
         if (length == -1) return Status::IOError("Decoding error");
         ptr += length;
         size -= length;
@@ -124,7 +130,7 @@ enum HeaderFlag {
         return Status::OK();
     }  
 
-  }
+  };
 }// end namespace cdb
 
 #endif // CUCKOODB_ENTRY_ORMAT_H_

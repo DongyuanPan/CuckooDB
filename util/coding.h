@@ -12,12 +12,11 @@
 #ifndef CUCKOODB_CODING_H_
 #define CUCKOODB_CODING_H_
 
-#include "util/debug.h"
 
 #include <stdint.h>
 #include <string.h>
 #include <string>
-#include "algorithm/endian.h"
+#include "util/endian.h"
 #include "util/status.h"
 
 namespace cdb {
@@ -59,7 +58,7 @@ extern char* EncodeVarint64(char* dst, uint64_t value);
 // without any bounds checking.
 
 inline uint32_t DecodeFixed32(const char* ptr) {
-  if (kdb::kLittleEndian) {
+  if (cdb::kLittleEndian) {
     // Load the raw bytes
     uint32_t result;
     memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
@@ -73,7 +72,7 @@ inline uint32_t DecodeFixed32(const char* ptr) {
 }
 
 inline uint64_t DecodeFixed64(const char* ptr) {
-  if (kdb::kLittleEndian) {
+  if (cdb::kLittleEndian) {
     // Load the raw bytes
     uint64_t result;
     memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load

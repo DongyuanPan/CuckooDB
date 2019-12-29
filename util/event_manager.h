@@ -14,7 +14,7 @@
 
 #include <thread>
 #include <condition_variable>
-#include <unordered_multimap>
+#include <unordered_map>
 #include <vector>
 
 
@@ -68,7 +68,7 @@ class EventManager {
     //事件注册    
     Event<std::vector<Entry>> flush_cache;
     Event<std::unordered_multimap<uint64_t, uint64_t>> update_index;
-    Event<int> clear_buffer;
+    Event<int> clear_cache;
     Event<int> compaction_status;
 };
 

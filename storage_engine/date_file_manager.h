@@ -13,7 +13,21 @@
 
 #include <thread>
 #include <mutex>
-#include <unordered_mutilmap>
+#include <unordered_map>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <dirent.h>
+
+#include <chrono>
+#include <vector>
+#include <set>
+#include <algorithm>
+#include <cstdio>
+#include <cinttypes>
 
 #include "file/file_resource_manager.h"
 
@@ -23,6 +37,9 @@
 #include "util/status.h"
 #include "util/logger.h"
 #include "util/xxhash.h"
+#include "util/const_value.h"
+#include "data_file_format.h"
+#include "entry_format.h"
 
 
 
@@ -31,12 +48,12 @@ namespace cdb{
 
 class DateFileManager {
   public:
-    DateFileManager(DatabaseOptions& db_options,
+    DateFileManager(cdb::Options& db_options,
                     std::string dbname,
                     bool read_only = false)
             : dbname_(dbname),
               db_options_(db_options),
-              id_read_only_(read_only),
+              is_read_only_(read_only),
               fileid_(0),
               sequence_fileid_(0),
               sequence_timestamp_(0) {
@@ -48,6 +65,7 @@ class DateFileManager {
       size_block_ = SIZE_DATA_FILE;
       has_file_ = false;
       buffer_has_items_ = false;
+      has_sync_option_ = false;
 
     }
 
@@ -56,8 +74,7 @@ class DateFileManager {
         if (is_read_only_ || is_close_) return;
         is_close_ = true;
         FlushCurrentFile();
-        CloseCurrentFile();
-        delete hash_;
+        CloseFile();
     }
 
 
@@ -107,7 +124,6 @@ class DateFileManager {
 
         IncrementSequenceFileId(1);
         IncrementSequenceTimestamp(1);      
-        log::trace("ateFileManager::OpenNewFile()");
 
         filepath_ = dbname_ + "/" + num_to_hex(fileid_);
         log::trace("DateFileManager::OpenNewFile()", "Opening file [%s]: %u", filepath_.c_str(), GetSequenceFileId());
@@ -116,7 +132,7 @@ class DateFileManager {
           if ((fd_ = open(filepath_.c_str(), O_WRONLY|O_CREAT, 0644)) < 0) {
             log::emerg("DateFileManager::OpenNewFile()", "Could not open file [%s]: %s", filepath_.c_str(), strerror(errno));
             wait_until_can_open_new_files_ = true;
-            std::this_thread::sleep_for(std::chrono::milliseconds(db_options_.internal__open_file_retry_delay));
+            std::this_thread::sleep_for(std::chrono::milliseconds(5000));
             continue;
           }
           wait_until_can_open_new_files_ = false;
@@ -129,13 +145,13 @@ class DateFileManager {
 
         // 为头部 预留空间
         offset_start_ = 0;
-        offset_end_ = db_options_.internal__hstable_header_size;
+        offset_end_ = db_options_.internal__datafile_header_size;
 
         // 填充 文件固定头部
-        struct HSTableHeader hstheader;
-        hstheader.filetype  = filetype_default_;
-        hstheader.timestamp = timestamp_;
-        HSTableHeader::EncodeTo(&hstheader, &db_options_, buffer_raw_);        
+        struct DataFileHeader datafileheader;
+        datafileheader.filetype  = filetype_default_;
+        datafileheader.timestamp = timestamp_;
+        DataFileHeader::EncodeTo(&datafileheader, &db_options_, buffer_raw_);        
     }
 
 
@@ -153,6 +169,7 @@ class DateFileManager {
     uint32_t FlushCurrentFile(int force_new_file=0, uint64_t padding=0) {
       if (!has_file_)
         return 0;
+      uint32_t fileid_out = fileid_;
       log::trace("DateFileManager::FlushCurrentFile()", "ENTER - fileid_:%d, has_file_:%d, buffer_has_items_:%d", fileid_, has_file_, buffer_has_items_);
       
       if (has_file_ && buffer_has_items_) {
@@ -171,16 +188,16 @@ class DateFileManager {
       //强制操作系统立即直接刷新到硬盘上
       if (has_sync_option_) {
         has_sync_option_ = false;
-        if (FileUtil::sync_file(fd_) < 0) {
+        if (fdatasync(fd_) < 0) {
           log::emerg("DateFileManager::FlushCurrentFile()", "Error sync_file(): %s", strerror(errno));
         }
       }  
 
       //文件超出 规定大小 或者 强制新建文件 则关闭当前文件，write会自己新建文件
-      if (offset_end_ >= size_block_ || (force_new_file && offset_end_ > db_options_.internal__hstable_header_size)) {
+      if (offset_end_ >= size_block_ || (force_new_file && offset_end_ > db_options_.internal__datafile_header_size)) {
         log::trace("DateFileManager::FlushCurrentFile()", "file renewed - force_new_file:%d", force_new_file);
         file_resource_manager.SetFileSize(fileid_, offset_end_);
-        CloseCurrentFile();
+        CloseFile();
       } 
 
       log::trace("DateFileManager::FlushCurrentFile()", "done!");
@@ -188,7 +205,7 @@ class DateFileManager {
     }   
 
     uint64_t Write(Entry& entry, uint64_t hashed_key) {
-
+      logger::trace("DataFileManager::Write()", "entry key: %s, hashed_key: %llu", entry.key.c_str(), hashed_key);
       struct EntryHeader entry_header;
       uint64_t index = 0;
 
@@ -196,14 +213,15 @@ class DateFileManager {
         has_sync_option_ = true;
       } 
 
-      if (entry.op_type == Entry::Put_or_Get){
+      if (entry.op_type == EntryType::Put_Or_Get){
 
         entry_header.SetPut();
+        entry_header.crc32 = entry.crc32;
         entry_header.size_key = entry.key.size();
         entry_header.size_value = entry.value.size();
         entry_header.hash = hashed_key;
-        entry_header.checksum_content = order.crc32;
-        entry_header.SetIsUncompacted(false);
+
+        entry_header.SetMerge(false);
 
         //序列化 写入Entry 头部
         uint32_t size_header = EntryHeader::EncodeTo(db_options_, &entry_header, buffer_raw_ + offset_end_);
@@ -223,13 +241,13 @@ class DateFileManager {
         entry_header.size_key = entry.key.size();
         entry_header.size_value = 0;
         // entry_header.hash = hashed_key;
-        entry_header.checksum_content = order.crc32;
-        entry_header.SetIsUncompacted(false);
+        entry_header.crc32 = entry.crc32;
+        entry_header.SetMerge(false);
 
         //序列化 写入Entry 头部
         uint32_t size_header = EntryHeader::EncodeTo(db_options_, &entry_header, buffer_raw_ + offset_end_);
         //写入 key
-        memcpy(buffer_raw_ + offset_end_ + size_header, entry.key, entry.key.size());
+        memcpy(buffer_raw_ + offset_end_ + size_header, entry.key.c_str(), entry.key.size());
 
         //回传 索引信息    文件ID和文件中该Entry的偏移
         uint64_t file_id_hight = fileid_;
@@ -243,18 +261,19 @@ class DateFileManager {
       return index;
     }
 
-    void WriteEntrys(std::vector<Entry>& entrys, std::unordered_multimap<uint64_t, uint64_t> indexs>& map_index_out) {
+    void WriteEntrys(std::vector<Entry>& entrys, std::unordered_multimap<uint64_t, uint64_t>& map_index_out) {
+      log::trace("DateFileManager::WriteEntrys()", "got entrys size: %d", entry.size());
       for (auto& entry:entrys){
           if (! has_file_) OpenNewFile();
 
           //文件大小 大于最大限制则 刷新
           if (offset_end_ > size_block_) {
-            log::trace("DateFileManager::Write()", "About to flush - offset_end_: %llu | size_block_: %llu", offset_end_, size_block_);
+            log::trace("DateFileManager::WriteEntrys()", "About to flush - offset_end_: %llu | size_block_: %llu", offset_end_, size_block_);
             FlushCurrentFile(true, 0);        
           }
 
           //只考虑 小文件的情况下
-          log::trace("DateFileManager::Write()", "key: [%s] size_value:%llu", entry.key.c_str(), entry.value->size());
+          log::trace("DateFileManager::WriteEntrys()", "key: [%s] size_value:%llu", entry.key.c_str(), entry.value.size());
           uint64_t hashed_key = XXH64(entry.key.data(), entry.key.size(), 0);
 
           buffer_has_items_ = true;
@@ -262,19 +281,26 @@ class DateFileManager {
           index = Write(entry, hashed_key);
 
           if (index != 0 ) {
-            map_index_out.insert(std::pair<uint64_t, uint64_t>(hashed_key, index))
+            map_index_out.insert(std::pair<uint64_t, uint64_t>(hashed_key, index));
           } else {
-            log::trace("DateFileManager::Write()", "Avoided catastrophic location error"); 
+            log::trace("DateFileManager::WriteEntrys()", "Avoided catastrophic location error"); 
           }
 
       }
 
-      log::trace("DateFileManager::Write()", "end flush");
+      log::trace("DateFileManager::WriteEntrys()", "end flush");
       FlushCurrentFile(false, 0);
     }
 
   private:
+    cdb::Options db_options_;
+    std::string dbname_;
+    bool is_read_only_;
+    bool is_close_;
     int sequence_fileid_;
+    uint64_t timestamp_;
+    uint64_t sequence_timestamp_;
+
     int size_block_;
     bool has_file_;
     int fd_;
@@ -282,12 +308,28 @@ class DateFileManager {
     uint32_t fileid_;
     uint64_t offset_start_;
     uint64_t offset_end_;
-    std::string dbname_;
+
+
     char *buffer_raw_;
+    char *buffer_index_;
     bool buffer_has_items_;
+
+
+    std::mutex mutex_close_;
+    std::mutex mutex_sequence_fileid_;
+    std::mutex mutex_sequence_timestamp_;
+    bool is_locked_sequence_timestamp_;
+    bool wait_until_can_open_new_files_;
+
+    cdb::FileResourceManager file_resource_manager;
+    uint32_t filetype_default_;
+    bool has_sync_option_;
+    
+
+
   
 
-}
+};
 
 }//end namespace cdb
 

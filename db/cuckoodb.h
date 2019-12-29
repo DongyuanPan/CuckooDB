@@ -22,17 +22,18 @@
 #include "cache/cache.h"
 #include "storage_engine/storage_engine.h"
 #include "util/event_manager.h"
+#include "util/options.h"
 
 namespace cdb{
 
 class CuckooDB:public DB{
   public:
-    CuckooDB(DatebaseOpention db_options, std::string name, EventManager *event_manager);
+    CuckooDB(cdb::Options db_options, std::string name);
     virtual ~CuckooDB(){}
 
-    virtual Status Get(const std::string &key, std::string* value) override;
-    virtual Status Put(const std::string &key, const std::string& value) override;
-    virtual Status Delete(const std::string& key) override;
+    virtual Status Get(ReadOptions& write_options, const std::string &key, std::string* value) override;
+    virtual Status Put(WriteOptions& write_options, const std::string &key, const std::string& value) override;
+    virtual Status Delete(WriteOptions& write_options, const std::string& key) override;
 
   private:
     std::string name_;//database name

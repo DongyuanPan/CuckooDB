@@ -10,32 +10,33 @@
 #ifndef CUCKOODB_INCLUDE_OPTIONS_H_
 #define CUCKOODB_INCLUDE_OPTIONS_H_
 
-#include "comparator.h"
 
 namespace cdb{
 
 class Options{
  public:
-  Options():
-    comparator_(nullptr) { }
+  Options(){
+    internal__datafile_header_size = 4096;
+    write_buffer__size = 4096;
+  }
 
   ~Options(){}
 
-  Comparator* comparator_;
   uint64_t write_buffer__size;
   std::string log_target;
+  uint32_t internal__datafile_header_size;
 
 };
 
 
-class ReadOptions{
+struct ReadOptions{
   bool checksum;
   ReadOptions()
 	  :checksum(false){}
 
 };
 
-class WriteOptioins{
+struct WriteOptions{
   bool sync;
   WriteOptions()
 	  :sync(false){}

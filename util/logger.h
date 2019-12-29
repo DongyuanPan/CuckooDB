@@ -90,6 +90,7 @@ class Logger {
                       t.tm_min,
                       t.tm_sec,
                       static_cast<int>(now_tv.tv_usec),
+                      logname,
                       ss.str().c_str());
       } else if (log_target_ == Logger::kLogTargetSyslog) {
         p += snprintf(p, limit - p,

@@ -11,10 +11,10 @@
 
 namespace cdb{
 
-Cache::Cache(cdb::DatebaseOpention db_options, cdb::EventManager* event_manager){
+Cache::Cache(cdb::Options db_options, cdb::EventManager* event_manager){
   stop_ = false;
   num_readers_ = 0;
-  max_size_ = 200;
+  max_size_ = 50;
   live_size_ = 0;
   swap_size_ = 0;
   event_manager_ = event_manager;
@@ -23,7 +23,7 @@ Cache::Cache(cdb::DatebaseOpention db_options, cdb::EventManager* event_manager)
 }
 
 
-Status Cache::Get(const std::string &key, std::string* value){
+Status Cache::Get(ReadOptions& write_options, const std::string &key, std::string* value){
   
   //read live cache	
   w_mutex_cache_live_l1.lock();
@@ -93,23 +93,25 @@ Status Cache::Get(const std::string &key, std::string* value){
 }
 
 
-Status Cache::Put(const std::string &key, const std::string& value){
-  return Additem(EntryType::Put_Or_Get,
+Status Cache::Put(WriteOptions& write_options, const std::string &key, const std::string& value){
+  return Additem(write_options,
+        EntryType::Put_Or_Get,
 	      key,
 	      value);
 }
 
 
-Status Cache::Delete(const std::string& key){
+Status Cache::Delete(WriteOptions& write_options, const std::string& key){
   std::string value = "";
-  return Additem(EntryType::Delete,
+  return Additem(write_options,
+              EntryType::Delete,
               key,
               value);
 
 }
 
 
-Status Cache::Additem(const EntryType& op_type, const std::string &key, const std::string& value){
+Status Cache::Additem(WriteOptions& write_options, const EntryType& op_type, const std::string &key, const std::string& value){
   uint64_t kv_size = key.size() + value.size();
   log::trace("Cache::Add()","kvsize:%d", kv_size);
   log::trace("Cache::Add()","key %s, value %s", key.c_str(), value.c_str());
@@ -117,7 +119,7 @@ Status Cache::Additem(const EntryType& op_type, const std::string &key, const st
 
 
   cache_live_.push_back(Entry{std::this_thread::get_id(),
-		  	//	write_options,
+		  		write_options,
 		  		op_type,
 		  		key,
 		  		value});
@@ -172,9 +174,9 @@ void Cache::Run(){
     //to-do:等待所有读swap cahce 的线程结束，然后清空swap cache
     w_mutex_cache_swap_l4.lock();
     while(true) {
-      std::unique_lock<std::mutex> lock_read(mutex_copy_read_level5_);
+      std::unique_lock<std::mutex> lock_read(r_mutex_cache_swap_l5);
       if (num_readers_ == 0) break;
-      cv_read_.wait(lock_read);
+      cond_reader.wait(lock_read);
     }
  
     swap_size_ = 0;

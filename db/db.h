@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <string>
 #include "util/status.h"
+#include "util/options.h"
 
 namespace cdb{
 
@@ -22,9 +23,9 @@ class DB{
 
     virtual  ~DB(){}
 
-    virtual Status Get(const std::string &key, std::string* value) = 0;
-    virtual Status Put(const std::string &key, const std::string& value) = 0;
-    virtual Status Delete(const std::string& key) = 0;
+    virtual Status Get(ReadOptions& write_options, const std::string &key, std::string* value) = 0;
+    virtual Status Put(WriteOptions& write_options, const std::string &key, const std::string& value) = 0;
+    virtual Status Delete(WriteOptions& write_options, const std::string& key) = 0;
 
 };
 

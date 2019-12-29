@@ -13,12 +13,12 @@
 #include <mutex>
 #include <string>
 #include <vector>
-#include <unordered_multimap>
+#include <unordered_map>
 
-#include "data_file_manager.h"
-#include "eventmanager.h"
+#include "date_file_manager.h"
+#include "util/event_manager.h"
 
-#include ""file/file_resource_manager.h
+#include "file/file_resource_manager.h"
 
 #include "util/options.h"
 #include "util/entry.h"
@@ -30,14 +30,14 @@ namespace cdb{
 
 class StorageEngine{
   public:
-    StorageEngine(DatebaseOpention db_options,
-                  std::string name，
+    StorageEngine(Options db_options,
+                  std::string dbname,
                   EventManager *event_manager
                   )
-	    :dbname_(name),
+	    :dbname_(dbname),
        db_options_(db_options),
        event_manager_(event_manager),
-       date_file_manager_(db_options, dbname, read_only) {
+       date_file_manager_(db_options, dbname, false) {
 
       log::trace("StorageEngine:StorageEngine()", "dbname: %s", dbname_.c_str());
       stop_ = false;
@@ -84,7 +84,7 @@ class StorageEngine{
         //通知事件处理器  已经处理完毕 写入到文件 
         event_manager_->flush_cache.Done();
         //通知事件处理器 开始更新索引
-        event_manager_->update_index(indexs);
+        event_manager_->update_index.notify_and_wait(indexs);
       }
     }
 
@@ -96,7 +96,7 @@ class StorageEngine{
   private:
     std::string dbname_;
     bool stop_;
-    DatebaseOpention db_options_;
+    cdb::Options db_options_;
     EventManager *event_manager_;
     DateFileManager date_file_manager_;
 
@@ -106,10 +106,10 @@ class StorageEngine{
 
     //读写锁
     //to-do : 实现读写锁类
-    std::mutex mutex_reader_;
-    std::mutex mutex_writer_;
+    std::mutex mutex_read_;
+    std::mutex mutex_write_;
     int num_readers_;
-    std::condition_varialbe cond_read_complete_;//读线程 全部结束
+    std::condition_variable cond_read_complete_;//读线程 全部结束
 
     //存在 活锁问题（饥饿）
     //to-do:实现读写锁类 写优先读写锁
@@ -117,7 +117,7 @@ class StorageEngine{
     void AcquireWriteLock() {
       mutex_write_.lock();
       while(true) {
-        std::unique<std::mutex> lock_read(mutex_read_);
+        std::unique_lock<std::mutex> lock_read(mutex_read_);
         if (num_readers_ == 0) break;
         cond_read_complete_.wait(lock_read);
       }

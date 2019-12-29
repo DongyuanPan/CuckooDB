@@ -18,6 +18,7 @@
 #include "util/entry.h"
 #include "util/logger.h"
 #include "util/status.h"
+#include "util/options.h"
 #include "util/event_manager.h"
 #include <condition_variable>
 
@@ -25,14 +26,14 @@ namespace cdb{
 
 class Cache{
   public:
-    Cache(cdb::DatebaseOpention db_options, EventManager* event_manager_);
+    Cache(cdb::Options db_options, EventManager* event_manager_);
     ~Cache(){}
 
-    Status Get(const std::string &key, std::string* value);
-    Status Put(const std::string &key, const std::string& value);
-    Status Delete(const std::string& key);
+    Status Get(ReadOptions& write_options, const std::string &key, std::string* value);
+    Status Put(WriteOptions& write_options, const std::string &key, const std::string& value);
+    Status Delete(WriteOptions& write_options, const std::string& key);
 
-    Status Additem(const EntryType& op_type, const std::string &key, const std::string& value);
+    Status Additem(WriteOptions& write_options, const EntryType& op_type, const std::string &key, const std::string& value);
     void set_max_size_(int max_size){
       max_size_ = max_size;
     }
@@ -51,8 +52,8 @@ class Cache{
     bool stop_;	
     int num_readers_;
 
-    cdb::DatebaseOpention db_options_,
-    cdb::EventManager* event_manager_
+    cdb::Options db_options_;
+    cdb::EventManager* event_manager_;
 
 
     std::mutex w_mutex_cache_live_l1;

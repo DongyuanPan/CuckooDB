@@ -15,6 +15,6 @@
 #define SIZE_BUFFER_SEND      1024*1024*32 // used by server to prepare data to send to clients
 #define SIZE_BUFFER_CLIENT    1024*1024*65 // used by client to get data from server
 #define SIZE_DATA_FILE_HEADER   1024*8       // padding at top of log files
-#define SIZE_DATA_FILE    (SIZE_LOGFILE_HEADER + 1024*1024*32)  // maximum size log files can have for small items
+#define SIZE_DATA_FILE    (SIZE_DATA_FILE_HEADER + 1024*1024*32)  // maximum size log files can have for small items
 
 #endif

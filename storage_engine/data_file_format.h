@@ -14,9 +14,9 @@
 
 #include "util/status.h"
 #include "util/coding.h"
-#include "util/crc32.h"
+#include "util/crc32c.h"
 #include "util/logger.h"
-#include "util/optioin.h"
+#include "util/options.h"
 
 
 namespace cdb {
@@ -51,11 +51,11 @@ struct DataFileHeader {
 
   static Status DecodeFrom(const char* buffer_in,
                            uint64_t num_bytes_max,
-                           struct HSTableHeader *output,
-                           struct DatabaseOptions *db_options_out=nullptr) {
+                           struct DataFileHeader *output,
+                           struct Options *db_options_out=nullptr) {
     if (num_bytes_max < GetFixedSize()) return Status::IOError("Decoding error");
     GetFixed32(buffer_in, &(output->crc32));
-    GetFixed32(buffer_in + 4, &(output->version);
+    GetFixed32(buffer_in + 4, &(output->version));
     GetFixed32(buffer_in + 8, &(output->filetype));
     GetFixed64(buffer_in + 12, &(output->timestamp));
     
@@ -64,13 +64,13 @@ struct DataFileHeader {
     if (crc32_computed != output->crc32)   return Status::IOError("Invalid checksum");
 
     if (db_options_out == nullptr) return Status::OK();
-    Status s = DatabaseOptionEncoder::DecodeFrom(buffer_in + GetFixedSize(), num_bytes_max - GetFixedSize(), db_options_out);
-    return s;
+    //Status s = Options::DecodeFrom(buffer_in + GetFixedSize(), num_bytes_max - GetFixedSize(), db_options_out);
+    //return s;
 
   }
 
 
-  static Status DecodeTo(const struct DateFileManager *input, const struct DatabaseOptions* db_options, char* buffer) {
+  static Status EncodeTo(const struct DataFileHeader *input, const struct Options* db_options, char* buffer) {
     EncodeFixed32(buffer + 4, input->version);//4
     EncodeFixed32(buffer + 8, input->filetype);//4
     EncodeFixed64(buffer + 12, input->timestamp);//8
@@ -78,10 +78,8 @@ struct DataFileHeader {
     //头部4个字节放 CRC32校验码
     EncodeFixed32(buffer, crc32);
 
-    //以上一共16个字节
-
-    int size = DatabaseOptionEncoder::EncodeTo(db_options, buffer + GetFixedSize) + GetFixedSize;
-    return size;
+    //以上一共20字节
+    return GetFixedSize();
   }  
 
 };
@@ -110,7 +108,7 @@ struct DateFileFooter {
 
   static Status DecodeFrom(const char* buffer_in,
                            uint64_t num_bytes_max,
-                           struct HSTableFooter *output) {
+                           struct DateFileFooter *output) {
     if (num_bytes_max < GetFixedSize()) return Status::IOError("Decoding error");
     GetFixed32(buffer_in,      &(output->filetype));
     GetFixed32(buffer_in +  4, &(output->flags));

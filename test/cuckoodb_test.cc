@@ -5,6 +5,7 @@
 #include "util/logger.h"
 #include "util/status.h"
 #include "db/cuckoodb.h"
+#include "util/options.h"
 
 char get(){
   return static_cast<char>('a' + rand()%('z'-'a'+1));
@@ -13,8 +14,11 @@ char get(){
 int main(){
   std::unordered_map<std::string, std::string> map;
   cdb::Logger::set_current_level("trace");
-  cdb::CuckooDB db("testdb");
-  int n = 3;
+  cdb::Options db_options;
+  cdb::CuckooDB db(db_options, "testdb");
+  cdb::WriteOptions write_options;
+  cdb::ReadOptions read_options;
+  int n = 6;
   for (int i = 0; i < n; ++i){
     std::string s;
     for (int j = 0; j < 10; ++j){
@@ -22,7 +26,7 @@ int main(){
     }
     std::string key = std::to_string(i);
     std::cout << key <<" "<< s<<std::endl;
-    db.Put(key, s);
+    db.Put(write_options, key, s);
     map[key] = s;
   }
 
@@ -30,7 +34,7 @@ int main(){
   for (int i = 0; i < n; ++i){
     std::string key = std::to_string(i);
     std::string value;
-    db.Get(key, &value);
+    db.Get(read_options, key, &value);
     if (map[key] != value)
       flag = false;
   }
@@ -39,8 +43,8 @@ int main(){
     std::cout << "success Put and Get" << std::endl;
   std::string ke = "0";
   std::string va;
-  db.Delete(ke);
-  cdb::Status s = db.Get(ke, &va);
+  db.Delete(write_options, ke);
+  cdb::Status s = db.Get(read_options, ke, &va);
   if (s.IsNotFound()){
 	  std::cout << s.ToString()<<std::endl;
   }
