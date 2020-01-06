@@ -90,6 +90,35 @@ class StorageEngine{
 
     void RunIndex() {
       log::trace("StorageEngine::RunIndex()", "start to wait for handle index");
+
+      while(true) {
+        //阻塞等待
+        std::unordered_multimap<uint64_t, uint64_t> index_entrys = event_manager_-> update_index.Wait();
+        if (IsStop()) return;
+        log::trace("torageEngine::RunIndex()", "got %d to update", index_entrys.size());
+        
+        //允许其他线程获取写锁
+        int num_iterations_per_lock = db_options_.internal__num_iterations_per_lock;
+        int counter_iterations = 0;
+        for (auto& index:index_entrys){
+          if (counter_iterations == 0) {
+            AcquireWriteLock();
+          }
+          ++counter_iterations;
+          index_->insert(std::pair<uint64_t, uint64_t>(index.first, index.second));
+          if (counter_iterations >= num_iterations_per_lock){
+            ReleaseWriteLock();
+            counter_iterations = 0;
+          }
+        }
+
+        if (counter_iterations) ReleaseWriteLock();
+
+        event_manager_->update_index.Done();
+        //写操作完成 通知 清除swap cache
+        event_manager_->clear_cache.notify_and_wait();
+
+      }
       
     }
 
@@ -111,6 +140,7 @@ class StorageEngine{
     int num_readers_;
     std::condition_variable cond_read_complete_;//读线程 全部结束
 
+    std::unordered_multimap<uint64_t, uint64_t> index_;
     //存在 活锁问题（饥饿）
     //to-do:实现读写锁类 写优先读写锁
 
