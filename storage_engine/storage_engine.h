@@ -24,6 +24,8 @@
 #include "util/entry.h"
 #include "util/status.h"
 #include "util/logger.h"
+#include "util/xxhash.h"
+#include "util/const_value.h"
 
 
 namespace cdb{
@@ -122,6 +124,95 @@ class StorageEngine{
       
     }
 
+    Status Get(ReadOption& read_option,
+               std::string& key,
+               std::string* value) {
+      // uint64_t hasked_key = XXH64(key.data(), key.size(), 0);
+      //log::trace("StroageEngine::Get()", "key : ", key.size());
+      mutex_write_.lock();
+      mutex_read_.lock();
+      num_readers_ += 1;
+      mutex_read_.unlock();
+      mutex_write_.unlock();
+
+      bool has_compaction_index = false;
+      mutex_compaction_.lock();
+      has_compaction_index = is_compaction_in_progress_;
+      mutex_compaction_.unlock();
+      
+      Status s;
+      if (!has_compaction_index){
+        //不在合并中
+        s = GetWithIndex(read_option, index_, key, value);
+      } else {
+        s = GetWithIndex(read_option, index_compaction_, key, value);
+        if (!s.IsOK() && !s.IsDeleteOrder()){
+          s =GetWithIndex(read_option, index_, key, value);
+        }
+      }
+
+      mutex_read_.lock();
+      num_readers_ -= 1;
+      log::trace("StroageEngine::Get()", "num_readers_ : ", num_readers_);
+      mutex_read_.unlock();
+      cond_read_complete_.notify_one();
+
+      return s;
+    }
+
+    Status GetWithIndex(ReadOption& read_option, 
+                        std::unordered_multimap<uint64_t, uint64_t> index
+                        std::string& key,
+                        std:string* value) {
+
+      uint64_t hashed_key = XXH64(key.data(), key.size(), 0);
+      //查找键值
+      auto range = index.equal_range(hashed_key); 
+      //直接读取最近对该key的操作
+      if (range.first != range.second){
+        auto cur =  --range.second;
+
+        do {
+          std::string key_cmp;
+          Status s = GetEntry(read_option, cur->second, &key_cmp, value);
+          //如果 这个位置 存的就是这个键值 就返回，否则是hash冲突，继续往前找
+          if (key_cmp == key && (s.IsOK() || s.IsDeleteOrder())){
+            return s;
+          }
+          --cur;
+        } while(it != range.first);
+      }
+      return Status::NotFound("Unable to find the entry in the storage engine");
+    }
+
+    //传指针避免拷贝
+    Status GetEntry(ReadOption& read_option,
+                    uint64_t location,
+                    std::string* key,
+                    std::string* value) {
+      Status s = Status::OK();
+
+      uint32_t fileid = (location & 0xFFFFFFFF00000000) >> 32;
+      uint32_t offset_file = location & 0x00000000FFFFFFFF;
+      //文件结尾偏移
+      uint64_t filesize = 0;
+      filesize = date_file_manager_.file_resource_manager.GetFileSize(fileid);
+
+      //文件路径
+      std::string filepath = date_file_manager_.GetFilepath();
+
+      //实现文件池  用于管理读写的文件
+      std::string key_tmp;
+
+      struct EntryHeaher entry_header;
+      uint32_t size_header;
+      s = EntryHeaher::DecodeFrom(db_options_, read_option, );
+
+    }
+
+
+
+
   private:
     std::string dbname_;
     bool stop_;
@@ -139,6 +230,8 @@ class StorageEngine{
     std::mutex mutex_write_;
     int num_readers_;
     std::condition_variable cond_read_complete_;//读线程 全部结束
+    std::mutex mutex_compaction_;
+    bool is_compaction_in_progress_;//是否在合并中
 
     std::unordered_multimap<uint64_t, uint64_t> index_;
     //存在 活锁问题（饥饿）

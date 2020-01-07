@@ -66,6 +66,9 @@ class DateFileManager {
       has_file_ = false;
       buffer_has_items_ = false;
       has_sync_option_ = false;
+      prefix_ = "";
+      prefix_compaction_ = "";
+      dirpath_locks_ = "";
 
     }
 
@@ -119,6 +122,18 @@ class DateFileManager {
       std::unique_lock<std::mutex> lock(mutex_sequence_timestamp_);
       return sequence_timestamp_;
     }
+
+    std::string GetPrefix() {
+      return prefix_;
+    }
+
+    std::string GetFilepath(uint32_t fileid) {
+      return dbname_ + "/" + prefix_ + HSTableManager::num_to_hex(fileid); // TODO: optimize here
+    }
+
+    std::string GetLockFilepath(uint32_t fileid) {
+      return dirpath_locks_ + "/" + HSTableManager::num_to_hex(fileid); // TODO: optimize here
+    }    
 
     void OpenNewFile() {
 
@@ -300,6 +315,7 @@ class DateFileManager {
     int sequence_fileid_;
     uint64_t timestamp_;
     uint64_t sequence_timestamp_;
+    
 
     int size_block_;
     bool has_file_;
@@ -308,6 +324,9 @@ class DateFileManager {
     uint32_t fileid_;
     uint64_t offset_start_;
     uint64_t offset_end_;
+    std::string prefix_;
+    std::string prefix_compaction_;
+    std::string dirpath_locks_;
 
 
     char *buffer_raw_;

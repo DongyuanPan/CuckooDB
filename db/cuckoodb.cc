@@ -21,20 +21,28 @@ CuckooDB::CuckooDB(cdb::Options db_options,
 
 Status CuckooDB::Get(ReadOptions& read_options, const std::string &key, std::string* value) {
   log::trace("CuckooDB::Get()","key:%s", key.c_str());
+
+  //查找Cache
   Status s = cache_->Get(read_options, key, value);
 
   if (s.IsRemoveEntry()){
     return Status::NotFound("Has been Remove, Unable to find");
-  }
-
-  //to-do:find in StorageEngine
-  if (s.IsNotFound()){
+  } else if (s.IsNotFound()){
     //find in StorageEngine
+    log::trace("CuckooDB::Get()", "not found in cahce, search in StorageEngine");
+    s = stroage_engine_->Get(read_options, key, value);
+    if (s.IsNotFound()) {
+      log::trace("CuckooDB::Get()", "not found in StorageEngine");
+      return s;
+    } else if (s.IsOK()){
+      log::trace("CuckooDB::Get()", "found in StorageEngine");
+      return s;
+    }
     return Status::NotFound("Unable to find");
   }
 
 
-  log::trace("CuckooDB::Get()", "found key, return value");
+  log::trace("CuckooDB::Get()", "found key in cahce, return value");
   return s;
 } 
 
