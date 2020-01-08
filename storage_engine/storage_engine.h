@@ -19,6 +19,7 @@
 #include "util/event_manager.h"
 
 #include "file/file_resource_manager.h"
+#include "file/file_pool.h"
 
 #include "util/options.h"
 #include "util/entry.h"
@@ -26,6 +27,8 @@
 #include "util/logger.h"
 #include "util/xxhash.h"
 #include "util/const_value.h"
+#include "entry_format.h"
+
 
 
 namespace cdb{
@@ -44,6 +47,7 @@ class StorageEngine{
       log::trace("StorageEngine:StorageEngine()", "dbname: %s", dbname_.c_str());
       stop_ = false;
       num_readers_ = 0;
+      file_pool_ = std::make_shared<FilePool>();
       
       //启动事件循环 
       thread_data_ = std::thread(&StorageEngine::RunData, this);
@@ -107,7 +111,7 @@ class StorageEngine{
             AcquireWriteLock();
           }
           ++counter_iterations;
-          index_->insert(std::pair<uint64_t, uint64_t>(index.first, index.second));
+          index_.insert(std::pair<uint64_t, uint64_t>(index.first, index.second));
           if (counter_iterations >= num_iterations_per_lock){
             ReleaseWriteLock();
             counter_iterations = 0;
@@ -118,13 +122,21 @@ class StorageEngine{
 
         event_manager_->update_index.Done();
         //写操作完成 通知 清除swap cache
-        event_manager_->clear_cache.notify_and_wait();
+        int tmp = 1;
+        event_manager_->clear_cache.notify_and_wait(tmp);
 
       }
       
     }
 
-    Status Get(ReadOption& read_option,
+    Status Get(ReadOptions& read_option,
+               const std::string& key,
+               std::string* value) {
+      
+      return Get(read_option, key, value);
+    }
+               
+    Status Get(ReadOptions& read_option,
                std::string& key,
                std::string* value) {
       // uint64_t hasked_key = XXH64(key.data(), key.size(), 0);
@@ -146,7 +158,7 @@ class StorageEngine{
         s = GetWithIndex(read_option, index_, key, value);
       } else {
         s = GetWithIndex(read_option, index_compaction_, key, value);
-        if (!s.IsOK() && !s.IsDeleteOrder()){
+        if (!s.IsOK() && !s.IsRemoveEntry()){
           s =GetWithIndex(read_option, index_, key, value);
         }
       }
@@ -160,54 +172,74 @@ class StorageEngine{
       return s;
     }
 
-    Status GetWithIndex(ReadOption& read_option, 
-                        std::unordered_multimap<uint64_t, uint64_t> index
+    Status GetWithIndex(ReadOptions& read_option, 
+                        std::unordered_multimap<uint64_t, uint64_t>& index,
                         std::string& key,
-                        std:string* value) {
+                        std::string* value) {
 
       uint64_t hashed_key = XXH64(key.data(), key.size(), 0);
       //查找键值
-      auto range = index.equal_range(hashed_key); 
+      std::pair<std::unordered_multimap<uint64_t, uint64_t>::iterator, std::unordered_multimap<uint64_t, uint64_t>::iterator> range = index.equal_range(hashed_key);
       //直接读取最近对该key的操作
       if (range.first != range.second){
-        auto cur =  --range.second;
+        auto cur = range.second;
+        // cur = cur - 1;
 
         do {
           std::string key_cmp;
           Status s = GetEntry(read_option, cur->second, &key_cmp, value);
           //如果 这个位置 存的就是这个键值 就返回，否则是hash冲突，继续往前找
-          if (key_cmp == key && (s.IsOK() || s.IsDeleteOrder())){
+          if (key_cmp == key && (s.IsOK() || s.IsRemoveEntry())){
             return s;
           }
-          --cur;
-        } while(it != range.first);
+          // cur = cur - 1;
+        } while(cur != range.first);
       }
       return Status::NotFound("Unable to find the entry in the storage engine");
     }
 
     //传指针避免拷贝
-    Status GetEntry(ReadOption& read_option,
+    Status GetEntry(ReadOptions& read_option,
                     uint64_t location,
                     std::string* key,
                     std::string* value) {
       Status s = Status::OK();
 
       uint32_t fileid = (location & 0xFFFFFFFF00000000) >> 32;
-      uint32_t offset_file = location & 0x00000000FFFFFFFF;
+      uint32_t offset_in_file = location & 0x00000000FFFFFFFF;
       //文件结尾偏移
       uint64_t filesize = 0;
       filesize = date_file_manager_.file_resource_manager.GetFileSize(fileid);
 
       //文件路径
-      std::string filepath = date_file_manager_.GetFilepath();
+      std::string filepath = date_file_manager_.GetFilepath(fileid);
 
       //实现文件池  用于管理读写的文件
-      std::string key_tmp;
+      FileResource file_resource_;
+      file_pool_->GetFile(fileid, filepath, filesize, &file_resource_);
 
-      struct EntryHeaher entry_header;
+      struct EntryHeader entry_header;
       uint32_t size_header;
-      s = EntryHeaher::DecodeFrom(db_options_, read_option, );
+      s = EntryHeader::DecodeFrom(db_options_, 
+                                  read_option, 
+                                  file_resource_.mmap + offset_in_file, 
+                                  filesize - offset_in_file, 
+                                  &entry_header, 
+                                  &size_header);
+      if (!s.IsOK()) return s;
 
+      std::string key_out = std::string(offset_in_file + size_header, entry_header.size_key);
+      std::string value_out = std::string(offset_in_file + size_header + entry_header.size_key, entry_header.size_value);
+      
+      if (entry_header.IsTypeDelete()) {
+        s = Status::RemoveEntry();
+      }      
+      
+      log::trace("StorageEngine::GetEntry()", "key: %s   value: %s", key_out.c_str(), value_out.c_str());
+      *key = key_out;
+      *value = value_out;
+
+      return s;
     }
 
 
@@ -219,6 +251,7 @@ class StorageEngine{
     cdb::Options db_options_;
     EventManager *event_manager_;
     DateFileManager date_file_manager_;
+
 
     //事件循环线程
     std::thread thread_data_;
@@ -232,8 +265,10 @@ class StorageEngine{
     std::condition_variable cond_read_complete_;//读线程 全部结束
     std::mutex mutex_compaction_;
     bool is_compaction_in_progress_;//是否在合并中
+    std::shared_ptr<FilePool> file_pool_;
 
     std::unordered_multimap<uint64_t, uint64_t> index_;
+    std::unordered_multimap<uint64_t, uint64_t> index_compaction_;
     //存在 活锁问题（饥饿）
     //to-do:实现读写锁类 写优先读写锁
 
@@ -249,9 +284,6 @@ class StorageEngine{
     void ReleaseWriteLock() {
         mutex_write_.unlock();
     }
-
-
-
 
 
 };

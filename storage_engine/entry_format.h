@@ -41,7 +41,12 @@ enum HeaderFlag {
     // value
 
     void SetDelete() {
-        flags |= Delete;
+      flags |= Delete;
+    }
+
+    bool IsTypeDelete() {
+      log::trace("IsTypeDelete()", "flags %u", flags);
+      return (flags & Delete);
     }
 
     void SetPut() {

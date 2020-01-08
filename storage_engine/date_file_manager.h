@@ -128,11 +128,11 @@ class DateFileManager {
     }
 
     std::string GetFilepath(uint32_t fileid) {
-      return dbname_ + "/" + prefix_ + HSTableManager::num_to_hex(fileid); // TODO: optimize here
+      return dbname_ + "/" + prefix_ + DateFileManager::num_to_hex(fileid); // TODO: optimize here
     }
 
     std::string GetLockFilepath(uint32_t fileid) {
-      return dirpath_locks_ + "/" + HSTableManager::num_to_hex(fileid); // TODO: optimize here
+      return dirpath_locks_ + "/" + DateFileManager::num_to_hex(fileid); // TODO: optimize here
     }    
 
     void OpenNewFile() {
@@ -220,7 +220,7 @@ class DateFileManager {
     }   
 
     uint64_t Write(Entry& entry, uint64_t hashed_key) {
-      logger::trace("DataFileManager::Write()", "entry key: %s, hashed_key: %llu", entry.key.c_str(), hashed_key);
+      log::trace("DataFileManager::Write()", "entry key: %s, hashed_key: %llu", entry.key.c_str(), hashed_key);
       struct EntryHeader entry_header;
       uint64_t index = 0;
 
@@ -277,7 +277,7 @@ class DateFileManager {
     }
 
     void WriteEntrys(std::vector<Entry>& entrys, std::unordered_multimap<uint64_t, uint64_t>& map_index_out) {
-      log::trace("DateFileManager::WriteEntrys()", "got entrys size: %d", entry.size());
+      log::trace("DateFileManager::WriteEntrys()", "got entrys size: %d", entrys.size());
       for (auto& entry:entrys){
           if (! has_file_) OpenNewFile();
 
@@ -340,11 +340,11 @@ class DateFileManager {
     bool is_locked_sequence_timestamp_;
     bool wait_until_can_open_new_files_;
 
-    cdb::FileResourceManager file_resource_manager;
     uint32_t filetype_default_;
     bool has_sync_option_;
     
-
+ public:
+    cdb::FileResourceManager file_resource_manager;
 
   
 

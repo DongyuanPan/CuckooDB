@@ -23,14 +23,14 @@ int fd;
 uint64_t filesize;
 char* mmap;
 int num_references;
-}
+};
 
-class FileManager {
+class FilePool {
  public:
-  FileManager() {}
-  ~FileManager() {}
+  FilePool() {}
+  ~FilePool() {}
 
-  Status GetFile(uint32_t fileid, const edt::string& filepath. uint64_t filesize, FileResource* file) {
+  Status GetFile(uint32_t fileid, const std::string& filepath, uint64_t filesize, FileResource* file) {
     std::unique_lock<std::mutex> lock(mutex_);
     bool found = false;
 
@@ -51,11 +51,11 @@ class FileManager {
     }
     
     //在 files_unused 中找到
-    if (it != files_unused.end)()) {
-      file = *it;
+    if (it != files_unused.end()) {
+      *file = *it;
       files_unused.erase(it);
       file->num_references = 1;
-      files_used.insert(std::pair<uint32_t, FileResource>(fileid, * file));
+      files_used.insert(std::pair<uint32_t, FileResource>(fileid, *file));
       found = true;
 
     } else {
@@ -86,7 +86,7 @@ class FileManager {
     int fd = 0;
     //打开文件
     if ((fd = open(filepath.c_str(), O_RDONLY)) < 0) {
-      log::emerg("FileManager::Mmap()::ctor()", "Could not open file [%s]: %s", filepath.c_str(), strerror(errno));
+      log::emerg("FilePool::Mmap()::ctor()", "Could not open file [%s]: %s", filepath.c_str(), strerror(errno));
       return Status::IOError("Could not open() file");        
     }
     
@@ -107,11 +107,11 @@ class FileManager {
     file->fd = fd;
     file->mmap = datafile;
     file->num_references = 1;
-    files_used.insert(std::pair<uint32_t, FileManager>(fileid, *file));
+    files_used.insert(std::pair<uint32_t, FileResource>(fileid, *file));
 
     return Status::OK();                                       
   }
-}
+
 
   void ReleaseFile(uint32_t fileid, uint64_t filesize) {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -130,20 +130,21 @@ class FileManager {
       files_used.erase(it);
     }
   }
+  
 
-int NumFiles() {
-return files_unused.size() + files_used.size();
-}
+  int NumFiles() {
+    return files_unused.size() + files_used.size();
+  }
 
-int MaxNumFiles() {
-return 2048; 
-}
+  int MaxNumFiles() {
+    return 2048; 
+  }
 
-private:
-std::mutex mutex_;
-std::vector<FileResource> files_unused;
-std::unordered_multimap<uint32_t, FileResource> files_used:
-}
+  private:
+  std::mutex mutex_;
+  std::vector<FileResource> files_unused;
+  std::unordered_multimap<uint32_t, FileResource> files_used;
+};
 
 
 }//end nasepace cdb
