@@ -276,7 +276,7 @@ class DateFileManager {
       return index;
     }
 
-    void WriteEntrys(std::vector<Entry>& entrys, std::unordered_multimap<uint64_t, uint64_t>& map_index_out) {
+    void WriteEntrys(std::vector<Entry>& entrys, std::multimap<uint64_t, uint64_t>& map_index_out) {
       log::trace("DateFileManager::WriteEntrys()", "got entrys size: %d", entrys.size());
       for (auto& entry:entrys){
           if (! has_file_) OpenNewFile();

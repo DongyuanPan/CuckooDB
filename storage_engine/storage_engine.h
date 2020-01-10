@@ -81,7 +81,7 @@ class StorageEngine{
         //获取写f
         AcquireWriteLock();
         //哈希表，存储索引
-        std::unordered_multimap<uint64_t, uint64_t> indexs;
+        std::multimap<uint64_t, uint64_t> indexs;
         //处理数据写入文件之中
         date_file_manager_.WriteEntrys(entrys, indexs);
 
@@ -99,9 +99,9 @@ class StorageEngine{
 
       while(true) {
         //阻塞等待
-        std::unordered_multimap<uint64_t, uint64_t> index_entrys = event_manager_-> update_index.Wait();
+        std::multimap<uint64_t, uint64_t> index_entrys = event_manager_-> update_index.Wait();
         if (IsStop()) return;
-        log::trace("torageEngine::RunIndex()", "got %d to update", index_entrys.size());
+        log::trace("StorageEngine::RunIndex()", "got %d to update", index_entrys.size());
         
         //允许其他线程获取写锁
         int num_iterations_per_lock = db_options_.internal__num_iterations_per_lock;
@@ -122,6 +122,7 @@ class StorageEngine{
 
         event_manager_->update_index.Done();
         //写操作完成 通知 清除swap cache
+        log::trace("StorageEngine::RunIndex()", "update index Done  then notify to clear cache");
         int tmp = 1;
         event_manager_->clear_cache.notify_and_wait(tmp);
 
@@ -173,18 +174,16 @@ class StorageEngine{
     }
 
     Status GetWithIndex(ReadOptions& read_option, 
-                        std::unordered_multimap<uint64_t, uint64_t>& index,
+                        std::multimap<uint64_t, uint64_t>& index,
                         std::string& key,
                         std::string* value) {
 
       uint64_t hashed_key = XXH64(key.data(), key.size(), 0);
       //查找键值
-      std::pair<std::unordered_multimap<uint64_t, uint64_t>::iterator, std::unordered_multimap<uint64_t, uint64_t>::iterator> range = index.equal_range(hashed_key);
+      std::pair<std::multimap<uint64_t, uint64_t>::iterator, std::multimap<uint64_t, uint64_t>::iterator> range = index.equal_range(hashed_key);
       //直接读取最近对该key的操作
       if (range.first != range.second){
-        auto cur = range.second;
-        // cur = cur - 1;
-
+        auto cur = --range.second;
         do {
           std::string key_cmp;
           Status s = GetEntry(read_option, cur->second, &key_cmp, value);
@@ -192,7 +191,7 @@ class StorageEngine{
           if (key_cmp == key && (s.IsOK() || s.IsRemoveEntry())){
             return s;
           }
-          // cur = cur - 1;
+          --cur;
         } while(cur != range.first);
       }
       return Status::NotFound("Unable to find the entry in the storage engine");
@@ -267,8 +266,8 @@ class StorageEngine{
     bool is_compaction_in_progress_;//是否在合并中
     std::shared_ptr<FilePool> file_pool_;
 
-    std::unordered_multimap<uint64_t, uint64_t> index_;
-    std::unordered_multimap<uint64_t, uint64_t> index_compaction_;
+    std::multimap<uint64_t, uint64_t> index_;
+    std::multimap<uint64_t, uint64_t> index_compaction_;
     //存在 活锁问题（饥饿）
     //to-do:实现读写锁类 写优先读写锁
 

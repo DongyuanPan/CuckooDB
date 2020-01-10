@@ -43,11 +43,10 @@ class Cache{
     bool IsStop(){ return stop_;}
     void SetStop(){ stop_ = true;}
     
-
-    std::vector<Entry> cache_live_;
-    int live_size_;
-    std::vector<Entry> cache_swap_;
-    int swap_size_;
+    int index_live_;
+    int index_copy_;
+    std::array<std::vector<Entry>,2> caches_;
+    std::array<int, 2> sizes_;
     int max_size_;
     bool stop_;	
     int num_readers_;

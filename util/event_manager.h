@@ -67,7 +67,7 @@ class EventManager {
     EventManager() {}
     //事件注册    
     Event<std::vector<Entry>> flush_cache;
-    Event<std::unordered_multimap<uint64_t, uint64_t>> update_index;
+    Event<std::multimap<uint64_t, uint64_t>> update_index;
     Event<int> clear_cache;
     Event<int> compaction_status;
 };
