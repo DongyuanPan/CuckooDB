@@ -22,6 +22,7 @@ Cache::Cache(cdb::Options db_options, cdb::EventManager* event_manager){
   event_manager_ = event_manager;
   db_options_ = db_options;
   thread_cache_handler_ = std::thread(&Cache::Run, this);
+  log::trace("Cache::Add()", "Cache::Run");
 }
 
 
@@ -117,15 +118,15 @@ Status Cache::Additem(WriteOptions& write_options, const EntryType& op_type, con
   uint64_t kv_size = key.size() + value.size();
   log::trace("Cache::Add()","kvsize:%d", kv_size);
   log::trace("Cache::Add()","key %s, value %s", key.c_str(), value.c_str());
+
   std::unique_lock<std::mutex> lock_cache_live_(w_mutex_cache_live_l1);
-
-
+  mutex_live_size_l3.lock();
   caches_[index_live_].push_back(Entry{std::this_thread::get_id(),
 		  		write_options,
 		  		op_type,
 		  		key,
 		  		value});
-  mutex_live_size_l3.lock();
+
   sizes_[index_live_] += kv_size;
   uint64_t cache_live_size = sizes_[index_live_];
   log::trace("Cache::Add()", "live_size_ %d",cache_live_size);
@@ -145,6 +146,7 @@ Status Cache::Additem(WriteOptions& write_options, const EntryType& op_type, con
 }
 
 void Cache::Run(){
+  log::trace("Cache::Run", "wait flush condition");
   while(true){
     std::unique_lock<std::mutex> lock_flush(mutex_flush_l2);
     
@@ -170,7 +172,7 @@ void Cache::Run(){
     log::trace("Cache::Run", "wait clear cache ");
     event_manager_->clear_cache.Wait();
     event_manager_->clear_cache.Done();
-    log::trace("Cache::Run", "clear cache has benn done");
+
     log::trace("Cache::Add()", "live_size_ %d",sizes_[index_live_]);
     log::trace("Cache::Add()", "swap_size_ %d",sizes_[index_copy_]);
     //to-do:等待所有读swap cahce 的线程结束，然后清空swap cache
@@ -180,10 +182,11 @@ void Cache::Run(){
       if (num_readers_ == 0) break;
       cond_reader.wait(lock_read);
     }
- 
+    log::trace("Cache::Add()", "caches_[index_copy_] size %d",caches_[index_copy_].size());
     sizes_[index_copy_] = 0;
     caches_[index_copy_].clear();
     w_mutex_cache_swap_l4.unlock();
+    log::trace("Cache::Run", "clear cache has benn done");
   }
 }
 

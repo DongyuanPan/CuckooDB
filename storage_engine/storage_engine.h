@@ -51,7 +51,9 @@ class StorageEngine{
       
       //启动事件循环 
       thread_data_ = std::thread(&StorageEngine::RunData, this);
+      log::trace("StorageEngine:StorageEngine()", "StorageEngine::RunData");
       thread_index_ = std::thread(&StorageEngine::RunIndex, this);
+      log::trace("StorageEngine:StorageEngine()", "StorageEngine::RunIndex");
 
 
 	  };
@@ -74,6 +76,7 @@ class StorageEngine{
       //等待 swap cache 满了 通过 事件驱动器通知 进行处理
       while(true){
         //阻塞等待
+        log::trace("StorageEngine::RunData()", "wait");
         std::vector<Entry> entrys = event_manager_-> flush_cache.Wait();
         if (IsStop()) return;
         log::trace("StorageEngine::RunData()", "got %d entry", entrys.size());
@@ -125,6 +128,7 @@ class StorageEngine{
         log::trace("StorageEngine::RunIndex()", "update index Done  then notify to clear cache");
         int tmp = 1;
         event_manager_->clear_cache.notify_and_wait(tmp);
+        log::trace("StorageEngine::RunIndex()", "has notify clear cache");
 
       }
       

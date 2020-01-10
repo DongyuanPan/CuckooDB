@@ -140,7 +140,7 @@ class DateFileManager {
         IncrementSequenceFileId(1);
         IncrementSequenceTimestamp(1);      
 
-        filepath_ = dbname_ + "/" + num_to_hex(fileid_);
+        filepath_ = GetFilepath(GetSequenceFileId());
         log::trace("DateFileManager::OpenNewFile()", "Opening file [%s]: %u", filepath_.c_str(), GetSequenceFileId());
         
         while (true) {
@@ -166,7 +166,8 @@ class DateFileManager {
         struct DataFileHeader datafileheader;
         datafileheader.filetype  = filetype_default_;
         datafileheader.timestamp = timestamp_;
-        DataFileHeader::EncodeTo(&datafileheader, &db_options_, buffer_raw_);        
+        DataFileHeader::EncodeTo(&datafileheader, &db_options_, buffer_raw_);    
+        log::trace("DateFileManager::OpenNewFile()", "Opening file [%s]: %u success", filepath_.c_str(), GetSequenceFileId());    
     }
 
 
