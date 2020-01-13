@@ -42,7 +42,7 @@ class StorageEngine{
 	    :dbname_(dbname),
        db_options_(db_options),
        event_manager_(event_manager),
-       date_file_manager_(db_options, dbname, false) {
+       date_file_manager_(db_options, dbname, kUncompactedRegularType, false) {
 
       log::trace("StorageEngine:StorageEngine()", "dbname: %s", dbname_.c_str());
       stop_ = false;

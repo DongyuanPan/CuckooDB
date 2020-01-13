@@ -158,11 +158,11 @@ class FileResourceManager {
     return epoch_last_activity_[fileid];
   }
 
-  const std::vector< std::pair<uint64_t, uint32_t> > GetOffsetArray(uint32_t fileid) {
+  const std::vector< std::pair<uint64_t, uint32_t> > GetHintData(uint32_t fileid) {
     return offarrays_[fileid];
   }
 
-  void AddOffsetArray(uint32_t fileid, std::pair<uint64_t, uint32_t> p) {
+  void AddHintData(uint32_t fileid, std::pair<uint64_t, uint32_t> p) {
     offarrays_[fileid].push_back(p);
   }
 

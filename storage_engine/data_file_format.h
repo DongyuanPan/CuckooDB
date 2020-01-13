@@ -133,13 +133,13 @@ struct DateFileFooter {
 // 数据文件 HintFile 可以读取这里快速构建索引
 // 在重建hash表时，就不需要再扫描所有data file文件，而仅仅需要将hint file中的数据一行行读取并重建即可。
 // 大大提高了利用数据文件重启数据库的速度。
-struct HintFile {
+struct HintData {
   uint64_t hashed_key;
   uint32_t offset_entry;
 
   static Status DecodeFrom(const char* buffer_in,
                            uint64_t num_bytes_max,
-                           struct HintFile *output,
+                           struct HintData *output,
                            uint32_t *num_bytes_read) {
     int length;
     char *ptr = const_cast<char*>(buffer_in);
@@ -159,7 +159,7 @@ struct HintFile {
     return Status::OK();
   }
 
-  static uint32_t EncodeTo(const struct HintFile *input, char* buffer) {
+  static uint32_t EncodeTo(const struct HintData *input, char* buffer) {
     char *ptr;
     ptr = EncodeVarint64(buffer, input->hashed_key);
     ptr = EncodeVarint32(ptr, input->offset_entry);

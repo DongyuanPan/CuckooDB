@@ -50,13 +50,15 @@ class DateFileManager {
   public:
     DateFileManager(cdb::Options& db_options,
                     std::string dbname,
+                    FileType filetype_default,
                     bool read_only = false)
             : dbname_(dbname),
               db_options_(db_options),
               is_read_only_(read_only),
               fileid_(0),
               sequence_fileid_(0),
-              sequence_timestamp_(0) {
+              sequence_timestamp_(0),
+              filetype_default_(filetype_default) {
       if (!is_read_only_) {
         buffer_raw_ = new char[size_block_*2];
         buffer_index_ = new char[size_block_*2];
@@ -173,14 +175,89 @@ class DateFileManager {
 
     void CloseFile() {
       if (!has_file_) return;
-      log::trace("HSTableManager::CloseCurrentFile()", "ENTER - fileid_:%d", fileid_);
+      log::trace("DateFileManager::CloseFile()", "ENTER - fileid_:%d", fileid_);
 
-      // FlushOffsetArray();
+      FlushHintDate();
 
       close(fd_);
       buffer_has_items_ = false;
       has_file_ = false;
     }      
+
+    Status FlushHintDate() {
+      if (!has_file_) return Status::OK();
+      uint32_t num = file_resource_manager.GetNumWritesInProgress(fileid_);
+      log::trace("DateFileManager::FlushHintArray()", "ENTER - fileid_:%d - num_writes_in_progress:%u", fileid_, num);
+      if (file_resource_manager.GetNumWritesInProgress(fileid_) == 0) {
+        uint64_t size_offarray;
+        file_resource_manager.SetFileSize(fileid_, offset_end_);
+        if (ftruncate(fd_, offset_end_) < 0) {
+          return Status::IOError("DateFileManager::FlushHintArray()", strerror(errno));
+        }
+        Status s = WriteHintData(fd_, 
+                                 file_resource_manager.GetHintData(fileid_), 
+                                 &size_offarray, 
+                                 filetype_default_, 
+                                 file_resource_manager.HasPaddingInValues(fileid_), 
+                                 false);
+        uint64_t filesize = file_resource_manager.GetFileSize(fileid_);
+        file_resource_manager.SetFileSize(fileid_, filesize + size_offarray);
+        return s;
+      }
+      return Status::OK();
+    }
+
+    Status WriteHintData(int fd,
+                          const std::vector< std::pair<uint64_t, uint32_t> >& offarray_current,
+                          uint64_t* size_out,
+                          FileType filetype,
+                          bool has_padding_in_values,
+                          bool has_invalid_entries) {
+      uint64_t offset = 0;
+      struct HintData row;
+
+      //添加 HintDate 固化索引
+      for (auto& p:offarray_current) {
+        row.hashed_key = p.first;
+        row.offset_entry = p.second;
+        uint32_t length = HintData::EncodeTo(&row, buffer_index_ + offset);
+        offset += length;
+        log::trace("DateFileManager::WriteHintData()", "hashed_key:[0x%" PRIx64 "] offset:[0x%08x]", p.first, p.second);
+      }
+
+      //记录文件末尾（索引开始写入位置） 然后 构造Footer 最后 写入 HintDate和Footer
+      int64_t position = lseek(fd, 0, SEEK_END);
+      if (position < 0) {
+        return Status::IOError("DateFileManager::WriteHintData()", strerror(errno));
+      }
+      log::trace("DateFileManager::WriteHintData()", "file position:[%" PRIu64 "]", position);    
+
+      struct DateFileFooter footer;
+      footer.filetype = filetype;
+      footer.offset_indexes = position;
+      footer.num_entries = offarray_current.size();
+      if (has_invalid_entries) footer.SetFlagHasInvalidEntries();
+      uint32_t length = DateFileFooter::EncodeTo(&footer, buffer_index_ + offset);
+      offset += length;
+
+      uint32_t crc32 = crc32c::Value(buffer_index_, offset - 4);
+      EncodeFixed32(buffer_index_ + offset - 4, crc32);
+
+      if (write(fd, buffer_index_, offset) < 0) {
+        log::trace("DateFileManager::WriteHintData()", "Error write(): %s", strerror(errno));
+      }
+
+      // ftruncate() is necessary in case the file system space for the file was pre-allocated 
+      if (ftruncate(fd, position + offset) < 0) {
+        return Status::IOError("DateFileManager::WriteHintData()", strerror(errno));
+      } 
+
+      *size_out = offset;
+      log::trace("DateFileManager::WriteHintData()", "offset_indexes:%u, num_entries:[%lu]", position, offarray_current.size());
+      return Status::OK();     
+
+    }
+
 
     uint32_t FlushCurrentFile(int force_new_file=0, uint64_t padding=0) {
       if (!has_file_)
@@ -250,6 +327,8 @@ class DateFileManager {
         file_id_hight = file_id_hight << 32;
         index = file_id_hight | offset_end_;
         log::trace("DataFileManager::Write()", "entry key: %s, offset_end_ % llu", entry.key.c_str(), offset_end_);
+        //记录  索引数据  准备固化到硬盘
+        file_resource_manager.AddHintData(fileid_, std::pair<uint64_t, uint32_t>(hashed_key, offset_end_));
         //更新 偏移
         offset_end_ += size_header + entry.key.size() + entry.value.size();
       } else {
@@ -270,6 +349,9 @@ class DateFileManager {
         file_id_hight = file_id_hight << 32;
         index = file_id_hight | offset_end_;
         log::trace("DataFileManager::Write()", "entry key: %s, offset_end_ % llu", entry.key.c_str(), offset_end_);
+        
+        //记录  索引数据  准备固化到硬盘
+        file_resource_manager.AddHintData(fileid_, std::pair<uint64_t, uint32_t>(hashed_key, offset_end_));
         //更新 偏移
         offset_end_ += size_header + entry.key.size() + entry.value.size();
       }
@@ -341,7 +423,7 @@ class DateFileManager {
     bool is_locked_sequence_timestamp_;
     bool wait_until_can_open_new_files_;
 
-    uint32_t filetype_default_;
+    FileType filetype_default_;
     bool has_sync_option_;
     
  public:
