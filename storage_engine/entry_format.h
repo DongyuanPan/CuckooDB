@@ -28,6 +28,7 @@ enum HeaderFlag {
 };    
 
   struct EntryHeader {
+    EntryHeader() { flags = 0; }
     //crc32 校验
     uint32_t crc32;
     //entry的状态
@@ -50,7 +51,7 @@ enum HeaderFlag {
     }
 
     void SetPut() {
-        flags |= 0x0;
+        //
     }
 
     bool IsMerge() {
@@ -131,7 +132,7 @@ enum HeaderFlag {
         *num_bytes_read = num_bytes_max - size;
         output->size_header_serialized = *num_bytes_read;
 
-        //log::trace("EntryHeader::DecodeFrom", "size:%u", *num_bytes_read);
+        log::trace("EntryHeader::DecodeFrom", "size:%u", *num_bytes_read);
         return Status::OK();
     }  
 

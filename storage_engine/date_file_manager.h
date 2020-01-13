@@ -249,7 +249,7 @@ class DateFileManager {
         uint64_t file_id_hight = fileid_;
         file_id_hight = file_id_hight << 32;
         index = file_id_hight | offset_end_;
-
+        log::trace("DataFileManager::Write()", "entry key: %s, offset_end_ % llu", entry.key.c_str(), offset_end_);
         //更新 偏移
         offset_end_ += size_header + entry.key.size() + entry.value.size();
       } else {
@@ -269,7 +269,7 @@ class DateFileManager {
         uint64_t file_id_hight = fileid_;
         file_id_hight = file_id_hight << 32;
         index = file_id_hight | offset_end_;
-
+        log::trace("DataFileManager::Write()", "entry key: %s, offset_end_ % llu", entry.key.c_str(), offset_end_);
         //更新 偏移
         offset_end_ += size_header + entry.key.size() + entry.value.size();
       }

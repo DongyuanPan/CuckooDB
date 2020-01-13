@@ -27,7 +27,7 @@ Cache::Cache(cdb::Options db_options, cdb::EventManager* event_manager){
 
 
 Status Cache::Get(ReadOptions& write_options, const std::string &key, std::string* value){
-  
+  log::trace("Cache::Get()","search in live cache");
   //read live cache	
   w_mutex_cache_live_l1.lock();
   mutex_live_size_l3.lock();
@@ -67,6 +67,8 @@ Status Cache::Get(ReadOptions& write_options, const std::string &key, std::strin
   w_mutex_cache_swap_l4.unlock();
   r_mutex_cache_swap_l5.unlock();
 
+  Status s;
+  found = false;
   for (auto& entry:cache_swap){
     if (entry.key == key){
       found = true;
@@ -74,15 +76,20 @@ Status Cache::Get(ReadOptions& write_options, const std::string &key, std::strin
     }//no break, in order to find the latest item
   }
 
-  Status s;
-  found = false;
   if (found){
     if (entry_found.op_type == EntryType::Put_Or_Get){
+      log::trace("Cache::Get()","found and op_type is match, can be return value:%s", entry_found.value.c_str());
       *value = entry_found.value;
       s = Status::OK();
     }else if (entry_found.op_type == EntryType::Delete){
+      log::trace("Cache::Get()","RemoveEntry");
       s = Status::RemoveEntry();
-    }else
+    }else{
+      log::trace("Cache::Get()","Unable to find entry in swap cache");
+      s = Status::NotFound("Unable to find entry");
+    }
+  }else{
+      log::trace("Cache::Get()","Unable to find entry in swap cache");
       s = Status::NotFound("Unable to find entry");
   }
   
@@ -187,6 +194,8 @@ void Cache::Run(){
     caches_[index_copy_].clear();
     w_mutex_cache_swap_l4.unlock();
     log::trace("Cache::Run", "clear cache has benn done");
+    log::trace("Cache::Add()", "live_size_ %d",sizes_[index_live_]);
+    log::trace("Cache::Add()", "swap_size_ %d",sizes_[index_copy_]);
   }
 }
 

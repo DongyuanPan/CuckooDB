@@ -30,25 +30,29 @@ int main(){
     db.Put(write_options, key, s);
     map[key] = s;
   }
-  sleep(10);
 
-  // bool flag = true;
-  // for (int i = 0; i < n; ++i){
-  //   std::string key = std::to_string(i);
-  //   std::string value;
-  //   db.Get(read_options, key, &value);
-  //   if (map[key] != value)
-  //     flag = false;
-  // }
+  sleep(1);
 
-  // if (flag)
-  //   std::cout << "success Put and Get" << std::endl;
-  // std::string ke = "0";
-  // std::string va;
-  // db.Delete(write_options, ke);
-  // cdb::Status s = db.Get(read_options, ke, &va);
-  // if (s.IsNotFound()){
-	//   std::cout << s.ToString()<<std::endl;
-  // }
+  bool flag = true;
+  for (int i = 0; i < n; ++i){
+    std::string key = std::to_string(i);
+    std::string value;
+    db.Get(read_options, key, &value);
+    if (map[key] != value)
+      flag = false;
+  }
+
+  sleep(1);
+
+  if (flag)
+    std::cout << "success Put and Get" << std::endl;
+  std::string ke = "0";
+  std::string va;
+  db.Delete(write_options, ke);
+  cdb::Status s = db.Get(read_options, ke, &va);
+  if (s.IsNotFound()){
+	  std::cout << s.ToString()<<std::endl;
+  }
+
   return 0;
 }
