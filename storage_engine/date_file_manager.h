@@ -30,6 +30,7 @@
 #include <cinttypes>
 
 #include "file/file_resource_manager.h"
+#include "file/file_pool.h"
 
 #include "util/const_value.h"
 #include "util/options.h"
@@ -83,6 +84,7 @@ class DateFileManager {
     }
 
 
+
     static std::string num_to_hex(uint64_t num) {
       char buffer[20];
       sprintf(buffer, "%08" PRIx64, num);
@@ -106,7 +108,12 @@ class DateFileManager {
     uint32_t GetSequenceFileId() {
         std::unique_lock<std::mutex> lock(mutex_sequence_fileid_);
         return sequence_fileid_;
-    }    
+    } 
+
+    void SetSequenceFileId(uint32_t fileid_max) {
+        std::unique_lock<std::mutex> lock(mutex_sequence_fileid_);
+        sequence_fileid_ = fileid_max;
+    }        
 
     //时间轴
     uint64_t IncrementSequenceTimestamp(uint64_t inc) {
@@ -135,6 +142,201 @@ class DateFileManager {
 
     std::string GetLockFilepath(uint32_t fileid) {
       return dirpath_locks_ + "/" + DateFileManager::num_to_hex(fileid); // TODO: optimize here
+    }    
+
+    Status LoadDatabase(std::string& dbname,
+                        std::multimap<uint64_t, uint64_t>& index_se,
+                        std::set<uint32_t>* fileids_ignore = nullptr,
+                        uint32_t fileids_end = 0,
+                        std::vector<uint32_t>* fileids_iterator = nullptr) {
+
+      Status s;
+      struct stat info;
+      if (!is_read_only_) {
+        if (stat(dirpath_locks_.c_str(), &info) != 0 && mkdir(dirpath_locks_.c_str(), 0755) < 0){
+          return Status::IOError("Could not create lock directory", strerror(errno));
+        }
+
+        s = FileUtil::remove_files_with_prefix(dbname_.c_str(), prefix_compaction_);
+        if (!s.IsOK()) return Status::IOError("Could not clean up previous compaction");
+       
+        s = DeleteAllLockedFiles(dbname_);
+        if (!s.IsOK()) return Status::IOError("Could not clean up snapshots");
+
+        s = FileUtil::remove_files_with_prefix(dirpath_locks_.c_str(), "");
+        if (!s.IsOK()) return Status::IOError("Could not clean up locks");
+
+      }    
+
+      DIR *directory;
+      struct dirent *entry;
+      directory = opendir(dbname_.c_str());
+      if (directory == NULL) {
+              return Status::IOError("Could not open database directory", dbname.c_str());
+      }
+
+      char filepath[FileUtil::maximum_path_size()];
+      uint32_t fileid = 0;
+      std::unordered_map<std::string, uint32_t> timestamp_fileid_to_fileid;
+      //恢复 原来的时间轴和fileid  让加载后，新加入的文件从此处id和时间增加
+      uint32_t fileid_max = 0;
+      uint64_t timestamp_max = 0;
+
+      //读取目录下的所有数据文件
+      while ((entry = readdir(directory)) != NULL) {
+        if (strcmp(entry->d_name, prefix_compaction_.c_str()) == 0) continue;
+        //文件路径
+        int ret = snprintf(filepath, FileUtil::maximum_path_size(), "%s/%s", dbname.c_str(), entry->d_name);
+        if (ret < 0 || ret >= FileUtil::maximum_path_size()) {
+          log::trace("DateFileManager::LoadDatabase()", "FilePath buffer too small : %s ", entry->d_name);
+          continue;
+        }
+
+        if (!stat(filepath, &info) || !(info.st_mode & S_IFREG)) continue;
+        
+        if (info.st_size <= (off_t)db_options_.internal__datafile_header_size) {
+          log::trace("DateFileManager::LoadDatabase()",
+                    "file: [%s] only has a header or less, skipping\n", entry->d_name);
+          continue;
+        }
+
+        //读取文件 fileid 开始处理
+        fileid = DateFileManager::hex_to_num(entry->d_name);
+        char *datafile;
+        if ((fd_ = open(filepath_.c_str(), O_RDONLY)) < 0) {
+          log::emerg("DateFileManager::LoadDatabase()", "Could not open file [%s]: %s", filepath_.c_str(), strerror(errno));
+          return s;
+        }
+
+        datafile = static_cast<char*>(mmap(0,
+                                          info.st_size, 
+                                          PROT_READ,
+                                          MAP_SHARED,
+                                          fd_,
+                                          0));
+        if (datafile == MAP_FAILED) {
+          log::emerg("Could not mmap() file [%s]: %s", filepath_.c_str(), strerror(errno));
+          return s;
+        }  
+
+        struct DataFileHeader hstheader;
+        Status s = DataFileHeader::DecodeFrom(datafile, info.st_size, &hstheader);              
+        if (!s.IsOK()) {
+          log::trace("DateFileManager::LoadDatabase()",
+                    "file: [%s] has an invalid header, skipping\n", entry->d_name);
+          continue;
+        }
+        //构造 timestamp+fileid 的字符串  然后直接加入map中 自动排序
+        char buffer_key[64];
+        sprintf(buffer_key, "%016" PRIx64 "-%016x", hstheader.timestamp, fileid);
+        std::string key(buffer_key);
+        timestamp_fileid_to_fileid[key] = fileid;
+        fileid_max = std::max(fileid_max, fileid);
+        timestamp_max = std::max(timestamp_max, hstheader.timestamp);   
+      }
+
+      for (auto& item: timestamp_fileid_to_fileid) {
+        uint32_t fileid = item.second;
+        std::string filepath = GetFilepath(fileid);
+        if (stat(filepath.c_str(), &info) != 0) continue;
+
+        char *datafile;
+        if ((fd_ = open(filepath_.c_str(), O_RDONLY)) < 0) {
+          log::emerg("DateFileManager::LoadDatabase()", "Could not open file [%s]: %s", filepath_.c_str(), strerror(errno));
+          return s;
+        }
+
+        datafile = static_cast<char*>(mmap(0,
+                                          info.st_size, 
+                                          PROT_READ,
+                                          MAP_SHARED,
+                                          fd_,
+                                          0));
+        if (datafile == MAP_FAILED) {
+          log::emerg("Could not mmap() file [%s]: %s", filepath_.c_str(), strerror(errno));
+          return s; 
+        }
+        uint64_t filesize;
+        bool is_file_large, is_file_compacted;
+        //读取footer 获取 index 的位置
+        struct DateFileFooter footer;
+        Status s = DateFileFooter::DecodeFrom(datafile + info.st_size - DataFileFooter::GetFixedSize, 
+                                              DataFileFooter::GetFixedSize, 
+                                              &footer);
+        if (!s.IsOK()) {
+          log::trace("DateFileManager::LoadDatabase()",
+                    "file: [%s] has an invalid footer, skipping\n", entry->d_name);
+          continue;
+        }  
+
+        uint32_t crc32_computed = crc32c::Value(datafile + footer.offset_indexes, info.st_size - footer.offset_indexes - 4);
+        if (crc32_computed != footer.crc32) {
+          log::trace("DateFileManager::LoadDatabase()", "Skipping [%s] - Invalid CRC32:[%08x/%08x]", filepath_.c_str(), footer.crc32, crc32_computed);
+          return Status::IOError("Invalid footer");
+        }              
+
+        uint64_t offset_index = footer.offset_indexes;
+        HintData index;
+        uint32_t length = 0;
+
+        for (int i = 0; i < footer.num_entries; ++i) {
+          s = HintData::DecodeFrom(datafile + offset_index, info.st_size - footer.offset_indexes,  &index, &length);
+          if (!s.IsOK()) return s;
+          
+          offset_index += length;
+          uint64_t file_id_hight = fileid;
+          file_id_hight <<= 32;
+          index_se.insert(std::pair<uint64_t, uint64_t>(index.hashed_key, file_id_hight | index.offset_entry));
+
+          log::trace("DateFileManager::LoadDatabase()",
+                    "Add item to index -- hashed_key:[0x%" PRIx64 "] offset:[%u] -- offset_index:[%" PRIu64 "]",
+                    index.hashed_key, index.offset_entry, offset_index);          
+        }
+        filesize = info.st_size;
+        is_file_large = footer.IsTypeLarge() ? true : false;
+        is_file_compacted = footer.IsTypeCompacted() ? true : false;
+        log::trace("DateFileManager::LoadDatabase()", "Loaded [%s] num_entries:[%" PRIu64 "]", filepath, footer.num_entries);
+
+
+        file_resource_manager.SetFileSize(fileid, filesize);
+        if (is_file_large) file_resource_manager.SetFileLarge(fileid);
+        if (is_file_compacted) file_resource_manager.SetFileCompacted(fileid);
+
+      }
+
+      if (fileid_max > 0) {
+        SetSequenceFileId(fileid_max);
+        SetSequenceTimestamp(timestamp_max);
+      }
+      closedir(directory);
+      return Status::OK();
+
+    }
+
+    Status DeleteAllLockedFiles(std::string& dbname) {
+      std::set<uint32_t> fileids;
+      DIR *directory;
+      struct dirent *entry;
+      if ((directory = opendir(dirpath_locks_.c_str())) == NULL) {
+        return Status::IOError("Could not open lock directory", dirpath_locks_.c_str());
+      }
+
+      uint32_t fileid = 0;
+      while ((entry = readdir(directory)) != NULL) {
+        if (strncmp(entry->d_name, ".", 1) == 0) continue;
+        fileid = DateFileManager::hex_to_num(entry->d_name);
+        fileids.insert(fileid);
+      }
+
+      closedir(directory);
+
+      for (auto& fileid: fileids) {
+        if (std::remove(GetFilepath(fileid).c_str()) != 0) {
+          log::emerg("DeleteAllLockedFiles()", "Could not remove data file [%s]", GetFilepath(fileid).c_str());
+        }
+      }
+
+      return Status::OK();
     }    
 
     void OpenNewFile() {
@@ -240,6 +442,7 @@ class DateFileManager {
       uint32_t length = DateFileFooter::EncodeTo(&footer, buffer_index_ + offset);
       offset += length;
 
+      //计算 HintDate+footer的校验码
       uint32_t crc32 = crc32c::Value(buffer_index_, offset - 4);
       EncodeFixed32(buffer_index_ + offset - 4, crc32);
 

@@ -43,7 +43,7 @@ class StorageEngine{
        db_options_(db_options),
        event_manager_(event_manager),
        date_file_manager_(db_options, dbname, kUncompactedRegularType, false) {
-
+      
       log::trace("StorageEngine:StorageEngine()", "dbname: %s", dbname_.c_str());
       stop_ = false;
       num_readers_ = 0;
@@ -55,8 +55,10 @@ class StorageEngine{
       thread_index_ = std::thread(&StorageEngine::RunIndex, this);
       log::trace("StorageEngine:StorageEngine()", "StorageEngine::RunIndex");
 
-
-	  };
+      Status s = date_file_manager_.LoadDatabase(dbname, index_, fileids_ignore_, fileid_end, fileids_iterator_);
+      
+    
+    };
 
     ~StorageEngine() {
       thread_index_.join();

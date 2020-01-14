@@ -86,16 +86,19 @@ struct DataFileHeader {
 
 //数据文件 尾部格式
 struct DateFileFooter {
+  //HintDate  
+
   //data
   uint32_t filetype;
   uint32_t flags;
   uint64_t offset_indexes;
   uint64_t num_entries;
-  uint32_t crc32;  
+  uint32_t crc32;  //包括HintDate
 
-  //一共36个字节
+
+  //一共28个字节
   static uint32_t GetFixedSize() {
-    return 36;
+    return 28;
   }
 
   bool IsTypeCompacted() {
