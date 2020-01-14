@@ -70,8 +70,8 @@ class DateFileManager {
       buffer_has_items_ = false;
       has_sync_option_ = false;
       prefix_ = "";
-      prefix_compaction_ = "";
-      dirpath_locks_ = "";
+      prefix_compaction_ = "compaction_";
+      dirpath_locks_ = dbname + "/locks";
 
     }
 
@@ -145,10 +145,8 @@ class DateFileManager {
     }    
 
     Status LoadDatabase(std::string& dbname,
-                        std::multimap<uint64_t, uint64_t>& index_se,
-                        std::set<uint32_t>* fileids_ignore = nullptr,
-                        uint32_t fileids_end = 0,
-                        std::vector<uint32_t>* fileids_iterator = nullptr) {
+                        std::multimap<uint64_t, uint64_t>& index_se) {
+      log::trace("DateFileManager::LoadDatabase()", " load %s", dbname.c_str());
 
       Status s;
       struct stat info;
@@ -192,22 +190,24 @@ class DateFileManager {
           continue;
         }
 
-        if (!stat(filepath, &info) || !(info.st_mode & S_IFREG)) continue;
-        
+        if (stat(filepath, &info) != 0 || !(info.st_mode & S_IFREG)) continue;
         if (info.st_size <= (off_t)db_options_.internal__datafile_header_size) {
           log::trace("DateFileManager::LoadDatabase()",
                     "file: [%s] only has a header or less, skipping\n", entry->d_name);
           continue;
         }
-
+        log::trace("DateFileManager::LoadDatabase()", " filepath %s", filepath);
+        
+        
+        
         //读取文件 fileid 开始处理
         fileid = DateFileManager::hex_to_num(entry->d_name);
         char *datafile;
-        if ((fd_ = open(filepath_.c_str(), O_RDONLY)) < 0) {
-          log::emerg("DateFileManager::LoadDatabase()", "Could not open file [%s]: %s", filepath_.c_str(), strerror(errno));
+        if ((fd_ = open(filepath, O_RDONLY)) < 0) {
+          log::emerg("DateFileManager::LoadDatabase()", "Could not open file [%s]: %s", filepath, strerror(errno));
           return s;
         }
-
+        
         datafile = static_cast<char*>(mmap(0,
                                           info.st_size, 
                                           PROT_READ,
@@ -238,14 +238,13 @@ class DateFileManager {
       for (auto& item: timestamp_fileid_to_fileid) {
         uint32_t fileid = item.second;
         std::string filepath = GetFilepath(fileid);
+        log::trace("DateFileManager::LoadDatabase()", "1Loading file:[%s] with key:[%s]", filepath.c_str(), item.first.c_str());
         if (stat(filepath.c_str(), &info) != 0) continue;
-
         char *datafile;
-        if ((fd_ = open(filepath_.c_str(), O_RDONLY)) < 0) {
-          log::emerg("DateFileManager::LoadDatabase()", "Could not open file [%s]: %s", filepath_.c_str(), strerror(errno));
+        if ((fd_ = open(filepath.c_str(), O_RDONLY)) < 0) {
+          log::emerg("DateFileManager::LoadDatabase()", "Could not open file [%s]: %s", filepath, strerror(errno));
           return s;
         }
-
         datafile = static_cast<char*>(mmap(0,
                                           info.st_size, 
                                           PROT_READ,
@@ -256,51 +255,16 @@ class DateFileManager {
           log::emerg("Could not mmap() file [%s]: %s", filepath_.c_str(), strerror(errno));
           return s; 
         }
+
         uint64_t filesize;
-        bool is_file_large, is_file_compacted;
-        //读取footer 获取 index 的位置
-        struct DateFileFooter footer;
-        Status s = DateFileFooter::DecodeFrom(datafile + info.st_size - DataFileFooter::GetFixedSize, 
-                                              DataFileFooter::GetFixedSize, 
-                                              &footer);
-        if (!s.IsOK()) {
-          log::trace("DateFileManager::LoadDatabase()",
-                    "file: [%s] has an invalid footer, skipping\n", entry->d_name);
-          continue;
-        }  
+        bool is_file_compacted;
+        s = LoadFile(datafile, info.st_size, filepath, fileid, index_se, &filesize, &is_file_compacted);
 
-        uint32_t crc32_computed = crc32c::Value(datafile + footer.offset_indexes, info.st_size - footer.offset_indexes - 4);
-        if (crc32_computed != footer.crc32) {
-          log::trace("DateFileManager::LoadDatabase()", "Skipping [%s] - Invalid CRC32:[%08x/%08x]", filepath_.c_str(), footer.crc32, crc32_computed);
-          return Status::IOError("Invalid footer");
-        }              
-
-        uint64_t offset_index = footer.offset_indexes;
-        HintData index;
-        uint32_t length = 0;
-
-        for (int i = 0; i < footer.num_entries; ++i) {
-          s = HintData::DecodeFrom(datafile + offset_index, info.st_size - footer.offset_indexes,  &index, &length);
-          if (!s.IsOK()) return s;
-          
-          offset_index += length;
-          uint64_t file_id_hight = fileid;
-          file_id_hight <<= 32;
-          index_se.insert(std::pair<uint64_t, uint64_t>(index.hashed_key, file_id_hight | index.offset_entry));
-
-          log::trace("DateFileManager::LoadDatabase()",
-                    "Add item to index -- hashed_key:[0x%" PRIx64 "] offset:[%u] -- offset_index:[%" PRIu64 "]",
-                    index.hashed_key, index.offset_entry, offset_index);          
+        if (s.IsOK()) {
+          file_resource_manager.SetFileSize(fileid, filesize);
+          if (is_file_compacted) file_resource_manager.SetFileCompacted(fileid);
         }
-        filesize = info.st_size;
-        is_file_large = footer.IsTypeLarge() ? true : false;
-        is_file_compacted = footer.IsTypeCompacted() ? true : false;
-        log::trace("DateFileManager::LoadDatabase()", "Loaded [%s] num_entries:[%" PRIu64 "]", filepath, footer.num_entries);
 
-
-        file_resource_manager.SetFileSize(fileid, filesize);
-        if (is_file_large) file_resource_manager.SetFileLarge(fileid);
-        if (is_file_compacted) file_resource_manager.SetFileCompacted(fileid);
 
       }
 
@@ -311,6 +275,58 @@ class DateFileManager {
       closedir(directory);
       return Status::OK();
 
+    }
+
+    static Status LoadFile (char* datafile,
+                            uint32_t filesize,
+                            std::string& filepath,
+                            uint32_t fileid,
+                            std::multimap<uint64_t, uint64_t>& index_se,
+                            uint64_t *filesize_out=nullptr,
+                            bool *is_file_compacted_out=nullptr) {
+
+      log::trace("LoadFile()", "Loading [%s] of size:%u, sizeof(DateFileFooter):%u", filepath.c_str(), filesize, DateFileFooter::GetFixedSize());
+      //读取footer 获取 index 的位置
+      struct DateFileFooter footer;
+      Status s = DateFileFooter::DecodeFrom(datafile + filesize - DateFileFooter::GetFixedSize(), DateFileFooter::GetFixedSize(), &footer);
+      if (!s.IsOK()) {
+        log::trace("DateFileManager::LoadDatabase()",
+                  "file: has an invalid footer, skipping\n");
+        return s;
+      }  
+
+      log::trace("DateFileManager::LoadDatabase()", "footer: footer.offset_indexes-> %d", footer.offset_indexes);
+
+      uint32_t crc32_computed = crc32c::Value(datafile + footer.offset_indexes, filesize - footer.offset_indexes - 4);
+      if (crc32_computed != footer.crc32) {
+        log::trace("DateFileManager::LoadDatabase()", "Skipping [%s] - Invalid CRC32:[%08x/%08x]", filepath.c_str(), footer.crc32, crc32_computed);
+        return Status::IOError("Invalid footer");
+      }              
+
+      uint64_t offset_index = footer.offset_indexes;
+      struct HintData index;
+
+      for (int i = 0; i < footer.num_entries; ++i) {
+        uint32_t length = 0;
+        s = HintData::DecodeFrom(datafile + offset_index, filesize - footer.offset_indexes,  &index, &length);
+        if (!s.IsOK()) return s;
+        
+        
+        uint64_t file_id_hight = fileid;
+        file_id_hight <<= 32;
+        index_se.insert(std::pair<uint64_t, uint64_t>(index.hashed_key, file_id_hight | index.offset_entry));
+
+        log::trace("DateFileManager::LoadDatabase()",
+                  "Add item to index -- hashed_key:[0x%" PRIx64 "] offset:[%u] -- offset_index:[%" PRIu64 "]",
+                  index.hashed_key, index.offset_entry, offset_index); 
+
+        offset_index += length;
+      }
+      *filesize_out = filesize;
+      *is_file_compacted_out = footer.IsTypeCompacted() ? true : false;
+      log::trace("DateFileManager::LoadDatabase()", "Loaded [%s] num_entries:[%" PRIu64 "]", filepath.c_str(), footer.num_entries);
+
+      return Status::OK();
     }
 
     Status DeleteAllLockedFiles(std::string& dbname) {
@@ -495,7 +511,7 @@ class DateFileManager {
         file_resource_manager.SetFileSize(fileid_, offset_end_);
         CloseFile();
       } 
-
+      CloseFile();
       log::trace("DateFileManager::FlushCurrentFile()", "done!");
       return fileid_out;
     }   

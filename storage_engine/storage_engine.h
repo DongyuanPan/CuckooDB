@@ -55,8 +55,10 @@ class StorageEngine{
       thread_index_ = std::thread(&StorageEngine::RunIndex, this);
       log::trace("StorageEngine:StorageEngine()", "StorageEngine::RunIndex");
 
-      Status s = date_file_manager_.LoadDatabase(dbname, index_, fileids_ignore_, fileid_end, fileids_iterator_);
-      
+      Status s = date_file_manager_.LoadDatabase(dbname, index_);
+      if (!s.IsOK()) {
+        log::emerg("StorageEngine", "Could not load database: [%s]", s.ToString().c_str());
+      }      
     
     };
 

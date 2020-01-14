@@ -63,10 +63,7 @@ struct DataFileHeader {
     uint32_t crc32_computed = crc32c::Value(buffer_in + 4, 16);
     if (crc32_computed != output->crc32)   return Status::IOError("Invalid checksum");
 
-    if (db_options_out == nullptr) return Status::OK();
-    //Status s = Options::DecodeFrom(buffer_in + GetFixedSize(), num_bytes_max - GetFixedSize(), db_options_out);
-    //return s;
-
+    return Status::OK();
   }
 
 
@@ -118,6 +115,7 @@ struct DateFileFooter {
     GetFixed64(buffer_in +  8, &(output->offset_indexes));
     GetFixed64(buffer_in + 16, &(output->num_entries));
     GetFixed32(buffer_in + 24, &(output->crc32));
+    log::trace("DecodeFrom0", "offset_indexes %llu, num_entries%llu, crc32%d", output->offset_indexes, output->num_entries, output->crc32);
     return Status::OK();
   }
 
