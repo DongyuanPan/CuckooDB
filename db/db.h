@@ -26,6 +26,8 @@ class DB{
     virtual Status Get(ReadOptions& write_options, const std::string &key, std::string* value) = 0;
     virtual Status Put(WriteOptions& write_options, const std::string &key, const std::string& value) = 0;
     virtual Status Delete(WriteOptions& write_options, const std::string& key) = 0;
+    virtual Status Open() = 0;
+    virtual void Close() = 0;
 
 };
 

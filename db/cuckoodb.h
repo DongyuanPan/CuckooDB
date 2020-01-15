@@ -29,20 +29,26 @@ namespace cdb{
 class CuckooDB:public DB{
   public:
     CuckooDB(cdb::Options db_options, std::string name);
-    virtual ~CuckooDB(){}
+    virtual ~CuckooDB();
 
     virtual Status Get(ReadOptions& write_options, const std::string &key, std::string* value) override;
     virtual Status Put(WriteOptions& write_options, const std::string &key, const std::string& value) override;
     virtual Status Delete(WriteOptions& write_options, const std::string& key) override;
+    virtual Status Open() override;
+    virtual void Close() override;
 
   private:
     std::string name_;//database name
     std::mutex mutex_;
 
+    cdb::Options db_options_;
     cdb::StorageEngine *stroage_engine_;
     cdb::Cache *cache_;
     cdb::EventManager *event_manager_;
     // cdb::CRC32 crc32_;
+
+    bool is_closed_;
+    std::mutex mutex_close_;
 
 };
 

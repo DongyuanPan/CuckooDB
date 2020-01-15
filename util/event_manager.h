@@ -48,7 +48,7 @@ class Event {
         cv_done_.notify_one();
     }
 
-    void NotifyWait() {
+    void Notify() {
         cv_ready_.notify_one();
     }
 

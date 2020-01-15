@@ -19,6 +19,9 @@ class Options{
     internal__datafile_header_size = 4096;
     write_buffer__size = 4096;
     internal__num_iterations_per_lock = 20;
+    error_if_exists = 0;
+    create_if_missing = 1;
+    internal__close_timeout = 500;
   }
 
   ~Options(){}
@@ -27,6 +30,9 @@ class Options{
   std::string log_target;
   uint32_t internal__datafile_header_size;
   uint32_t internal__num_iterations_per_lock;
+  bool error_if_exists;
+  bool create_if_missing;
+  uint64_t internal__close_timeout;
 
 };
 

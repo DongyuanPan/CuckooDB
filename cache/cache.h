@@ -27,7 +27,7 @@ namespace cdb{
 class Cache{
   public:
     Cache(cdb::Options db_options, EventManager* event_manager_);
-    ~Cache(){}
+    ~Cache();
 
     Status Get(ReadOptions& write_options, const std::string &key, std::string* value);
     Status Put(WriteOptions& write_options, const std::string &key, const std::string& value);
@@ -38,10 +38,13 @@ class Cache{
       max_size_ = max_size;
     }
 
+    void Close(); 
+    void Flush();
+
   private:
     void Run();//event loop
-    bool IsStop(){ return stop_;}
-    void SetStop(){ stop_ = true;}
+    bool IsStop();
+    void SetStop();
     
     int index_live_;
     int index_copy_;
@@ -63,8 +66,12 @@ class Cache{
 
     std::condition_variable cond_flush;
     std::condition_variable cond_reader;
+    std::condition_variable cv_flush_done_;
 
-    std::thread thread_cache_handler_;
+    std::thread thread_cache_;
+
+    bool is_closed_;
+    std::mutex mutex_close_;
 };
 };
 

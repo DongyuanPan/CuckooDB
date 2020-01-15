@@ -21,12 +21,44 @@ Cache::Cache(cdb::Options db_options, cdb::EventManager* event_manager){
   sizes_[index_copy_] = 0;
   event_manager_ = event_manager;
   db_options_ = db_options;
-  thread_cache_handler_ = std::thread(&Cache::Run, this);
+  thread_cache_ = std::thread(&Cache::Run, this);
+  is_closed_ = false;
   log::trace("Cache::Add()", "Cache::Run");
 }
 
+Cache::~Cache(){
+  Close();
+}
+
+bool Cache::IsStop(){ return stop_;}
+void Cache::SetStop(){ stop_ = true;}
+
+//关闭时 将cache 里面的的数据都写入硬盘
+void Cache::Flush() {
+  std::unique_lock<std::mutex> lock_flush(mutex_flush_l2);
+  if (IsStop() && caches_[index_live_].empty() && caches_[index_copy_].empty())
+    return;
+
+  for (auto i = 0; i < 2; i++) {
+    cond_flush.notify_one();
+    cv_flush_done_.wait_for(lock_flush, std::chrono::milliseconds(db_options_.internal__close_timeout));
+  }
+  log::trace("Cache::Flush()", "end");
+}
+
+void Cache::Close () {
+  std::unique_lock<std::mutex> lock(mutex_close_);
+  if (is_closed_) return;
+  is_closed_ = true;
+  SetStop();
+  Flush();
+  cond_flush.notify_one();
+  thread_cache_.join();
+}
 
 Status Cache::Get(ReadOptions& write_options, const std::string &key, std::string* value){
+  if (IsStop()) return Status::IOError("Cannot handle request: Cache is closing");
+
   log::trace("Cache::Get()","search in live cache");
   //read live cache	
   w_mutex_cache_live_l1.lock();
@@ -122,6 +154,8 @@ Status Cache::Delete(WriteOptions& write_options, const std::string& key){
 
 
 Status Cache::Additem(WriteOptions& write_options, const EntryType& op_type, const std::string &key, const std::string& value){
+  if (IsStop()) return Status::IOError("Cannot handle request: Cache is closing");
+
   uint64_t kv_size = key.size() + value.size();
   log::trace("Cache::Add()","kvsize:%d", kv_size);
   log::trace("Cache::Add()","key %s, value %s", key.c_str(), value.c_str());
@@ -160,7 +194,8 @@ void Cache::Run(){
     //使用循环 判断条件 防止虚假唤醒
     while(sizes_[index_live_] == 0){
       cond_flush.wait(lock_flush);
-      if (IsStop()) return;
+      if (IsStop() && caches_[index_live_].empty() && caches_[index_copy_].empty()) 
+        return;
     }
     
     mutex_live_size_l3.lock();
@@ -180,8 +215,6 @@ void Cache::Run(){
     event_manager_->clear_cache.Wait();
     event_manager_->clear_cache.Done();
 
-    log::trace("Cache::Add()", "live_size_ %d",sizes_[index_live_]);
-    log::trace("Cache::Add()", "swap_size_ %d",sizes_[index_copy_]);
     //to-do:等待所有读swap cahce 的线程结束，然后清空swap cache
     w_mutex_cache_swap_l4.lock();
     while(true) {
@@ -194,8 +227,10 @@ void Cache::Run(){
     caches_[index_copy_].clear();
     w_mutex_cache_swap_l4.unlock();
     log::trace("Cache::Run", "clear cache has benn done");
-    log::trace("Cache::Add()", "live_size_ %d",sizes_[index_live_]);
-    log::trace("Cache::Add()", "swap_size_ %d",sizes_[index_copy_]);
+    
+    cv_flush_done_.notify_all();
+    if (IsStop() && caches_[index_live_].empty() && caches_[index_copy_].empty()) 
+      return;
   }
 }
 

@@ -13,10 +13,16 @@ namespace cdb{
 CuckooDB::CuckooDB(cdb::Options db_options, 
                    std::string name):
   name_(name) {
-  event_manager_ = new EventManager();
-  cache_ = new Cache(db_options, event_manager_);
-  stroage_engine_ = new StorageEngine(db_options, name, event_manager_);
+  is_closed_ = true;
+  db_options_ = db_options;
+  // event_manager_ = new EventManager();
+  // cache_ = new Cache(db_options, event_manager_);
+  // stroage_engine_ = new StorageEngine(db_options, name, event_manager_);
 
+}
+
+CuckooDB::~CuckooDB(){
+   Close();
 }
 
 Status CuckooDB::Get(ReadOptions& read_options, const std::string &key, std::string* value) {
@@ -61,4 +67,45 @@ Status CuckooDB::Additem(const EntryType& op_type, const std::string &key, const
   return Status::OK();
 }
 */
+
+Status CuckooDB::Open() {
+  FileUtil::increase_limit_open_files();
+
+  //判断是否存在名字为dbname的目录
+  struct stat info;
+  bool db_exists = (stat(name_.c_str(), &info) == 0);
+
+  if (db_exists && db_options_.error_if_exists) {
+    return Status::IOError("database exists", strerror(errno));
+  }
+
+  if (  !db_exists
+      && db_options_.create_if_missing
+      && mkdir(name_.c_str(), 0755) < 0) {
+    return Status::IOError("Could not create database directory", strerror(errno));
+  }  
+
+  std::unique_lock<std::mutex> lock(mutex_close_);
+  if (!is_closed_) return Status::IOError("The database is already open");
+
+  event_manager_ = new EventManager();
+  cache_ = new Cache(db_options_, event_manager_);
+  stroage_engine_ = new StorageEngine(db_options_, name_, event_manager_);
+
+  is_closed_ = false;
+  return Status::OK(); 
+
+}
+
+void CuckooDB::Close() {
+  std::unique_lock<std::mutex> lock(mutex_close_);
+  if (is_closed_) return;
+  is_closed_ = true;
+  cache_->Close();
+  stroage_engine_->Close();
+  delete cache_;
+  delete stroage_engine_;
+  delete event_manager_;
+}
+
 }

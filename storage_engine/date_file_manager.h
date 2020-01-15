@@ -73,17 +73,28 @@ class DateFileManager {
       prefix_compaction_ = "compaction_";
       dirpath_locks_ = dbname + "/locks";
 
+      is_closed_ = false;
+      is_locked_sequence_timestamp_ = false;
+      offset_start_ = 0;
+      offset_end_ = 0;
+
     }
 
     ~DateFileManager() {
-        std::unique_lock<std::mutex> lock(mutex_close_);
-        if (is_read_only_ || is_close_) return;
-        is_close_ = true;
-        FlushCurrentFile();
-        CloseFile();
+      Close();
     }
 
-
+    void Close() {
+      std::unique_lock<std::mutex> lock(mutex_close_);
+      if (is_read_only_ || is_closed_) return;
+      is_closed_ = true;
+      FlushCurrentFile();
+      CloseFile();
+      if (!is_read_only_) {
+        delete[] buffer_raw_;
+        delete[] buffer_index_;
+      }
+    }
 
     static std::string num_to_hex(uint64_t num) {
       char buffer[20];
@@ -511,7 +522,6 @@ class DateFileManager {
         file_resource_manager.SetFileSize(fileid_, offset_end_);
         CloseFile();
       } 
-      CloseFile();
       log::trace("DateFileManager::FlushCurrentFile()", "done!");
       return fileid_out;
     }   
@@ -613,7 +623,6 @@ class DateFileManager {
     cdb::Options db_options_;
     std::string dbname_;
     bool is_read_only_;
-    bool is_close_;
     int sequence_fileid_;
     uint64_t timestamp_;
     uint64_t sequence_timestamp_;
@@ -635,7 +644,7 @@ class DateFileManager {
     char *buffer_index_;
     bool buffer_has_items_;
 
-
+    bool is_closed_;
     std::mutex mutex_close_;
     std::mutex mutex_sequence_fileid_;
     std::mutex mutex_sequence_timestamp_;

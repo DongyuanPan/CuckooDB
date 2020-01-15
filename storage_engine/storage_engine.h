@@ -46,18 +46,19 @@ class StorageEngine{
       
       log::trace("StorageEngine:StorageEngine()", "dbname: %s", dbname_.c_str());
       stop_ = false;
+      is_closed_ = false;
       num_readers_ = 0;
       file_pool_ = std::make_shared<FilePool>();
       
       //启动事件循环 
       thread_data_ = std::thread(&StorageEngine::RunData, this);
-      log::trace("StorageEngine:StorageEngine()", "StorageEngine::RunData");
       thread_index_ = std::thread(&StorageEngine::RunIndex, this);
-      log::trace("StorageEngine:StorageEngine()", "StorageEngine::RunIndex");
+
 
       Status s = date_file_manager_.LoadDatabase(dbname, index_);
       if (!s.IsOK()) {
         log::emerg("StorageEngine", "Could not load database: [%s]", s.ToString().c_str());
+        Close();
       }      
     
     };
@@ -66,6 +67,29 @@ class StorageEngine{
       thread_index_.join();
       thread_data_.join();
     }
+
+    void Close() {
+      std::unique_lock<std::mutex> lock(mutex_close_);
+      if (is_closed_) return;
+      is_closed_ = true;
+
+      // Wait for readers to exit
+      AcquireWriteLock();
+      date_file_manager_.Close();
+      SetStop();
+      ReleaseWriteLock();
+
+
+      log::trace("StorageEngine::Close()", "join start");
+      //通知线程，子线程判断stop后返回
+      event_manager_->update_index.Notify(); 
+      event_manager_->flush_cache.Notify(); 
+      thread_index_.join();
+      thread_data_.join();
+
+      log::trace("StorageEngine::Close()", "end");
+
+    } 
 
     bool IsStop() {
       return stop_;
@@ -292,6 +316,9 @@ class StorageEngine{
         mutex_write_.unlock();
     }
 
+
+    bool is_closed_;
+    std::mutex mutex_close_;
 
 };
 
