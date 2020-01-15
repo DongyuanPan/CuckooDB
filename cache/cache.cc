@@ -154,7 +154,7 @@ Status Cache::Delete(WriteOptions& write_options, const std::string& key){
 
 
 Status Cache::Additem(WriteOptions& write_options, const EntryType& op_type, const std::string &key, const std::string& value){
-  if (IsStop()) return Status::IOError("Cannot handle request: Cache is closing");
+  // if (IsStop()) return Status::IOError("Cannot handle request: Cache is closing");
 
   uint64_t kv_size = key.size() + value.size();
   log::trace("Cache::Add()","kvsize:%d", kv_size);

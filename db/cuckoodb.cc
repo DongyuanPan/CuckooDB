@@ -87,7 +87,8 @@ Status CuckooDB::Open() {
 
   std::unique_lock<std::mutex> lock(mutex_close_);
   if (!is_closed_) return Status::IOError("The database is already open");
-
+  
+  log::trace("CuckooDB::Open()", "begin to Open");
   event_manager_ = new EventManager();
   cache_ = new Cache(db_options_, event_manager_);
   stroage_engine_ = new StorageEngine(db_options_, name_, event_manager_);

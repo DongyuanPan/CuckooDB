@@ -25,6 +25,13 @@ int main(){
   cdb::Logger::set_current_level("trace");
   cdb::Options db_options;
   cdb::CuckooDB db(db_options, "testdb");
+  cdb::Status s = db.Open();
+  if (!s.IsOK()) {
+    fprintf(stderr, "Could not open the database: %s\n", s.ToString().c_str());
+    exit(1);
+  }
+  fprintf(stderr, "Open the database: %s\n", s.ToString().c_str());
+
   cdb::WriteOptions write_options;
   cdb::ReadOptions read_options;
 

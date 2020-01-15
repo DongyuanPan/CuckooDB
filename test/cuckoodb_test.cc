@@ -17,6 +17,7 @@ int main(){
   cdb::Logger::set_current_level("trace");
   cdb::Options db_options;
   cdb::CuckooDB db(db_options, "testdb");
+  db.Open();
   cdb::WriteOptions write_options;
   cdb::ReadOptions read_options;
   int n = 5;
@@ -31,8 +32,6 @@ int main(){
     map[key] = s;
   }
 
-  sleep(1);
-
   bool flag = true;
   for (int i = 0; i < n; ++i){
     std::string key = std::to_string(i);
@@ -41,8 +40,6 @@ int main(){
     if (map[key] != value)
       flag = false;
   }
-
-  sleep(1);
 
   if (flag)
     std::cout << "success Put and Get" << std::endl;

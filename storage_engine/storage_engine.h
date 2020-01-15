@@ -64,8 +64,7 @@ class StorageEngine{
     };
 
     ~StorageEngine() {
-      thread_index_.join();
-      thread_data_.join();
+      //Close();
     }
 
     void Close() {

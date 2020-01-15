@@ -60,10 +60,6 @@ class DateFileManager {
               sequence_fileid_(0),
               sequence_timestamp_(0),
               filetype_default_(filetype_default) {
-      if (!is_read_only_) {
-        buffer_raw_ = new char[size_block_*2];
-        buffer_index_ = new char[size_block_*2];
-      } 
       
       size_block_ = SIZE_DATA_FILE;
       has_file_ = false;
@@ -77,6 +73,11 @@ class DateFileManager {
       is_locked_sequence_timestamp_ = false;
       offset_start_ = 0;
       offset_end_ = 0;
+
+      if (!is_read_only_) {
+        buffer_raw_ = new char[size_block_*2];
+        buffer_index_ = new char[size_block_*2];
+      } 
 
     }
 
